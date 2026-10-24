@@ -1,0 +1,39 @@
+name: backend
+
+on:
+  push:
+    branches: [main]
+    paths: ["backend/**", "config/**", ".github/workflows/backend.yml"]
+  pull_request:
+    paths: ["backend/**", "config/**", ".github/workflows/backend.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        run: pip install uv
+      - name: Install dependencies from the lockfile
+        run: uv sync --locked
+      - name: Lint
+        run: |
+          uv run ruff check src tests
+          uv run ruff format --check src tests
+      - name: Type check
+        run: uv run mypy src
+      - name: Unit tests
+        run: uv run pytest -q
+      - name: Dependency vulnerabilities
+        run: |
+          uv export --format requirements-txt --no-hashes --no-emit-project > /tmp/requirements.txt
+          uvx pip-audit --strict -r /tmp/requirements.txt

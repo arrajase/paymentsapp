@@ -1,0 +1,56 @@
+# Plugins and the modes each environment may use (plan 3.1).
+# The admin website can switch plugins only within these lists. Changing this file needs a reviewed pull request.
+#
+# Modes: mock (nobody holds money), sandbox (partner's test system), production (partner bank, real money).
+
+version: 1
+
+interfaces:
+  issuer: Issues the wallet and holds customer money in escrow
+  payment: UPI add money, pay out, status enquiry, consents for linking
+  aa: Customer bank statements under consent
+  kyc: PAN, Aadhaar e-KYC, video KYC, CKYC
+  screening: Sanctions, PEP and negative lists
+
+plugins:
+  mockbank:
+    description: Mock bank (https://github.com/arrajase/mockbankforpayments)
+    implements: [issuer, payment, aa]
+    modes: [mock]
+    # Editable on the admin website (with approval). `env` is the backend/.env variable imported by seed-plugins.
+    config:
+      base_url: {label: Bank API base URL, kind: url, env: MOCKBANK_BASE_URL}
+      escrow_upi_id: {label: Escrow UPI ID, kind: upi_id, env: MOCKBANK_ESCROW_UPI_ID}
+      operating_upi_id: {label: Operating UPI ID, kind: upi_id, env: MOCKBANK_OPERATING_UPI_ID}
+    # Write-only on the admin website: stored encrypted, shown only as a short preview.
+    secrets:
+      api_key: {label: API key (from the bank's create-client), env: MOCKBANK_API_KEY}
+      webhook_secret: {label: Webhook signing secret, env: MOCKBANK_WEBHOOK_SECRET}
+  mock_kyc:
+    description: In-process KYC stub with fixed test identities
+    implements: [kyc]
+    modes: [mock]
+  static_lists:
+    description: Static sanctions and PEP test lists
+    implements: [screening]
+    modes: [mock]
+
+environments:
+  development:
+    allowed:
+      issuer: {mockbank: [mock]}
+      payment: {mockbank: [mock]}
+      aa: {mockbank: [mock]}
+      kyc: {mock_kyc: [mock]}
+      screening: {static_lists: [mock]}
+  staging:
+    allowed:
+      issuer: {mockbank: [mock]}
+      payment: {mockbank: [mock]}
+      aa: {mockbank: [mock]}
+      kyc: {mock_kyc: [mock]}
+      screening: {static_lists: [mock]}
+  production:
+    # Empty until a partner bank agreement is signed. With no production-mode issuer, the backend refuses to start
+    # in production (plan 3.1: no real money without a licensed partner).
+    allowed: {}

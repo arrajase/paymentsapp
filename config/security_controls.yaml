@@ -1,0 +1,72 @@
+# Runtime security controls and what each environment may set them to (plan 3.2).
+# The admin website changes controls only within these limits. Changing this file needs a reviewed pull request.
+#
+# State controls: enforce (block), monitor (log and feed the risk engine), off (not run).
+# Number controls: an adjustable value within [min, max].
+
+version: 1
+
+# Loosening a control in production (enforce -> monitor, or a looser number) expires after this many hours
+# unless approved again, and alerts the security team.
+production_loosening_expiry_hours: 24
+
+controls:
+  app_attestation:
+    description: Play Integrity / App Attest token checked at login and before payments
+    kind: state
+    allowed: {development: [off, monitor], staging: [monitor, enforce], production: [enforce]}
+    default: {development: off, staging: monitor, production: enforce}
+
+  device_integrity_detection:
+    description: Root, jailbreak, emulator and hooking detection
+    kind: state
+    allowed: {development: [off, monitor], staging: [enforce], production: [enforce]}
+    default: {development: monitor, staging: enforce, production: enforce}
+
+  hardware_device_key:
+    description: Device key must be hardware-backed; off accepts a software key (emulator)
+    kind: state
+    allowed: {development: [off, enforce], staging: [enforce], production: [enforce]}
+    default: {development: off, staging: enforce, production: enforce}
+
+  certificate_pinning:
+    description: Public-key pinning in the mobile app
+    kind: state
+    allowed: {development: [off, enforce], staging: [enforce], production: [enforce]}
+    default: {development: off, staging: enforce, production: enforce}
+
+  screen_capture_protection:
+    description: FLAG_SECURE and capture detection on PIN, OTP, balance and KYC screens
+    kind: state
+    allowed: {development: [off, enforce], staging: [enforce], production: [enforce]}
+    default: {development: off, staging: enforce, production: enforce}
+
+  new_device_cooling_hours:
+    description: Reduced limits after a new device or reinstall
+    kind: number
+    bounds: {development: [0, 72], staging: [0, 72], production: [12, 72]}
+    default: {development: 0, staging: 24, production: 24}
+
+  otp_requests_per_hour:
+    description: OTP requests allowed per identifier per hour
+    kind: number
+    bounds: {development: [1, 100], staging: [3, 10], production: [3, 10]}
+    default: {development: 50, staging: 5, production: 5}
+
+  vpa_verifications_per_hour:
+    description: UPI ID checks allowed per customer per hour (stops name harvesting)
+    kind: number
+    bounds: {development: [1, 100], staging: [3, 20], production: [3, 20]}
+    default: {development: 50, staging: 10, production: 10}
+
+# Fixed in code; listed here so reviewers can see they are deliberately not adjustable (plan 3.2).
+never_adjustable:
+  - tls
+  - object_level_authorisation
+  - device_signed_requests_with_nonce
+  - idempotency
+  - ledger_database_constraints
+  - otp_and_pin_hashing
+  - audit_log
+  - pii_redaction_in_logs
+  - ai_guardrails
