@@ -195,6 +195,24 @@ class MockBankClient:
             active=out.status == "ACTIVE",
         )
 
+    async def lookup_mobile(self, mobile: str) -> VpaVerification | None:
+        # The bank takes the 10 digits in the body, so the number stays out of URLs and access logs.
+        digits = mobile.removeprefix("+91")
+        try:
+            data = await self._call("POST", "/upi/lookup", json={"mobile_number": digits})
+        except BankError as exc:
+            # The bank answers 422 VALIDATION_ERROR both for a malformed number and for one linked to no UPI ID.
+            if exc.code == "VALIDATION_ERROR":
+                return None
+            raise
+        out = _parse(VerifyOut, data)
+        return VpaVerification(
+            upi_id=out.upi_id,
+            account_holder_name=out.account_holder_name,
+            currency=out.currency,
+            active=out.status == "ACTIVE",
+        )
+
     async def request_consent(
         self,
         upi_id: str,

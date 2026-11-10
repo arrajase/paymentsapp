@@ -70,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
 
     commands.add_parser("generate-encryption-key", help="print a new FIELD_ENCRYPTION_KEYS value")
+    commands.add_parser("generate-blind-index-key", help="print a new BLIND_INDEX_KEY value")
 
     create = commands.add_parser("create-admin", help="create an admin website account")
     create.add_argument("--login-id", required=True)
@@ -84,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "generate-encryption-key":
         print(f"FIELD_ENCRYPTION_KEYS=k1={generate_key()}")
+        return 0
+    if args.command == "generate-blind-index-key":
+        print(f"BLIND_INDEX_KEY={generate_key()}")
         return 0
     if args.command == "create-admin":
         try:

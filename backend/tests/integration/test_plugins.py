@@ -73,7 +73,7 @@ async def test_seed_imports_env_values_once_and_hides_secrets(
     assert await seed_plugins(session, Settings()) == []  # second run changes nothing
 
     plugins = {p["key"]: p for p in (await client.get("/admin/v1/plugins", headers=maker)).json()}
-    assert set(plugins) == {"mockbank", "mock_kyc", "static_lists"}
+    assert set(plugins) == {"mockbank", "mock_kyc", "static_lists", "dev_messages"}
     bank = plugins["mockbank"]
     assert bank["enabled"] and bank["mode"] == "mock" and bank["allowed_modes"] == ["mock"]
     assert {f["name"]: f["value"] for f in bank["config"]}["escrow_upi_id"] == "escrow@okmockbank"

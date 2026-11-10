@@ -146,7 +146,9 @@ This is also how new security features are developed: a new control ships as Off
 
 **Loosening a control in production** (Enforce to Monitor, or a looser threshold) needs maker-checker approval and alerts the security team. It also expires automatically, for example after 24 hours, unless it is approved again. Production never offers Off.
 
-**The server enforces, the app only follows.** The mobile app fetches a signed snapshot of the current controls at startup and sign-in (`GET /v1/app-config`) to decide its own behaviour, such as whether to pin certificates. The server never relies on the app having obeyed it: if attestation is set to Enforce, a request without a valid attestation token is rejected, whatever the app reports.
+**A stored value the config files no longer allow** (for example after a pull request tightens a bound) is ignored, and the control falls back to its default. A database row can never keep a control looser than the reviewed files permit.
+
+**The server enforces, the app only follows.** The mobile app fetches a snapshot of the current controls at startup and sign-in (`GET /v1/app-config`) to decide its own behaviour, such as whether to pin certificates. It is public and contains only settings marked `client: true` plus feature switches. Signing the snapshot is added with the mobile app, which will hold the public key to check it. The server never relies on the app having obeyed it: if attestation is set to Enforce, a request without a valid attestation token is rejected, whatever the app reports.
 
 ---
 
@@ -154,7 +156,7 @@ This is also how new security features are developed: a new control ships as Off
 
 | Layer | Choice | Notes |
 |---|---|---|
-| Mobile | React Native + Expo (TypeScript), expo-router, TanStack Query | Use Expo development builds, not Expo Go, because the security native modules need them. Developed on an Android emulator (Android Studio). Flutter is an equally valid choice; decide before Phase 1. |
+| Mobile | React Native + Expo SDK 58 (TypeScript), expo-router | Phase 1 runs in Expo Go on the Android emulator: SecureStore, local authentication and screen capture all work there, and the device key is a software ECDSA P-256 key (`@noble/curves`) kept in SecureStore, which `hardware_device_key: off` allows in development. Switch to an Expo development build before the native security modules (hardware-backed Keystore key, Play Integrity, root detection, certificate pinning). TanStack Query can come in when screens need caching. |
 | Admin website | Next.js 16 (TypeScript, App Router, server actions), Tailwind CSS | Deployed separately from the customer API, on its own domain, behind SSO and an IP allowlist. Its server calls `/admin/v1`; the browser never talks to the backend and never sees the session token, which sits in an HttpOnly, SameSite=Strict cookie. A per-request CSP nonce is set in `proxy.ts`. Cache Components is off: every page is rendered per request and nothing is cached. |
 | Backend API | Python 3.12, FastAPI, Pydantic v2 | Continues the existing Python template. |
 | Database | PostgreSQL 16, SQLAlchemy 2 (async), Alembic | The ledger needs ACID transactions and row locking. |
@@ -192,7 +194,8 @@ paymentsapp/
 │   ├── risk_rules.yaml                 # fraud rules and thresholds
 │   ├── aml_scenarios.yaml              # transaction-monitoring scenarios
 │   ├── providers.yaml                  # plugins and modes each environment allows (3.1)
-│   └── security_controls.yaml          # states and bounds each environment allows (3.2)
+│   ├── security_controls.yaml          # states and bounds each environment allows (3.2)
+│   └── features.yaml                   # feature switches and their defaults per environment (3.2)
 ├── docs/
 │   ├── architecture.md
 │   ├── security/                       # threat model, mobile checklist, incident response
@@ -284,7 +287,16 @@ Backend modules created by `template.py`: `identity, kyc, upi, wallet, payments,
 - **Step-up authentication:** before a sensitive action, the customer re-authenticates with PIN or biometric plus the device signature, and an OTP when the risk is high. Sensitive actions are: linking or unlinking UPI, changing mobile or email, payments above a threshold, withdrawals, and adding a new device.
 - **New device or reinstall:** requires OTP and PIN. Old sessions are revoked, an alert goes to the existing email and mobile, and limits are reduced for a cooling period (for example 24 hours).
 
-**API:** `POST /v1/auth/otp/request`, `POST /v1/auth/otp/verify`, `POST /v1/auth/devices`, `POST /v1/auth/challenge`, `POST /v1/auth/token/refresh`, `POST /v1/auth/step-up`, `POST /v1/auth/logout`
+**API:** `POST /v1/auth/otp/request`, `POST /v1/auth/otp/verify`, `POST /v1/auth/devices`, `POST /v1/auth/challenge`, `POST /v1/auth/sign-in`, `POST /v1/auth/token/refresh`, `POST /v1/auth/sign-out`, `GET /v1/me`, `POST /v1/me/identifiers/otp`, `POST /v1/me/identifiers/verify`, `POST /v1/auth/step-up/challenge`, `POST /v1/auth/step-up`.
+
+**As built in Phase 1**
+- One OTP flow serves sign-up and sign-in. Verifying the code returns a short-lived enrolment token and the next step: create an account (accept the terms, set a PIN), set a PIN, or enter the PIN.
+- **One active device per customer**, as UPI apps do. Registering a new device revokes the previous one and its sessions, sends a security alert and starts the cooling period (`new_device_cooling_hours`).
+- Device keys are ECDSA P-256. A returning sign-in signs a one-time server challenge, plus the app PIN or a biometric unlock of the key.
+- Access tokens (`cus_…`) last 10 minutes; refresh tokens (`cur_…`) last 30 days, rotate on every use, are bound to the device, and reusing an old one revokes the session.
+- OTP limits are counted in Postgres: `otp_requests_per_hour` per identifier, a multiple of it per IP, and a 30-second resend cooldown.
+- In development, codes go to the Dev inbox on the admin website and, when the emulator is running, arrive as an SMS in it (M13).
+- **Step-up (Phase 2):** the app asks for a challenge naming the action (`upi_link`, `upi_unlink`, `upi_set_default`), signs `paymentsapp-step-up:{action}:{challenge_id}:{nonce}` with the device key and sends the app PIN or confirms a biometric unlock. It gets a step-up token (`stp_…`) valid for 5 minutes, for that action in that session, once, sent as the `X-Step-Up-Token` header. A step-up challenge can't be used to sign in. An OTP for high-risk step-ups arrives with the risk engine (M7).
 
 **Data owned:** users, identifiers (stored with a blind index), devices (public key, attestation result, status), sessions, refresh-token families.
 
@@ -305,6 +317,8 @@ Backend modules created by `template.py`: `identity, kyc, upi, wallet, payments,
 | T2 Full KYC | PAN verification, plus Aadhaar e-KYC, Aadhaar offline XML, DigiLocker, or video KYC (V-CIP); search and upload to the CKYC registry | Full PPI: higher caps, person-to-person transfers, withdrawal to bank |
 
 **Flow:** collect details, verify with a vendor (mocked in development), run sanctions and PEP screening (M8), assign a customer risk category (low, medium or high), assign the tier, and schedule periodic re-KYC according to the risk category.
+
+**Phase 1 builds a slim version.** T1 needs a verified mobile number plus a self-declared name and date of birth (18 or older); T2 comes from the KYC plugin, which in development (`mock_kyc`) approves at once. If no KYC plugin is enabled, upgrades pause rather than skip the check. The document number, PAN, Aadhaar, CKYC, duplicate detection and document storage are built once a KYC vendor is chosen, before any real customer.
 
 **Controls**
 - Never store a full Aadhaar number. Keep only the masked number or a reference token; if storing it is unavoidable, use a UIDAI Aadhaar Data Vault.
@@ -328,7 +342,16 @@ Backend modules created by `template.py`: `identity, kyc, upi, wallet, payments,
 
 **Production flow (TPAP through a PSP bank):** SIM binding through an SMS sent from the device, bank account discovery by mobile number, and UPI PIN set and entered only in the NPCI Common Library. For adding money, prefer UPI Intent or QR over Collect requests.
 
-**API:** `POST /v1/upi/validate`, `POST /v1/upi/links`, `GET /v1/upi/links`, `PATCH /v1/upi/links/{id}` (set default), `DELETE /v1/upi/links/{id}`
+**API:** `GET /v1/upi/discover`, `POST /v1/upi/validate`, `POST /v1/upi/links`, `GET /v1/upi/links`, `PATCH /v1/upi/links/{id}` (set default), `DELETE /v1/upi/links/{id}`, and the bank's `POST /v1/webhooks/mockbank`
+
+**As built in Phase 2**
+- **Finding the account:** `discover` asks the bank which UPI ID it links to the customer's verified mobile (`POST /upi/lookup`), standing in for account discovery by mobile number. The customer can also type a UPI ID, which `validate` checks. Only a masked account-holder name (`T••• U•••`) is ever sent to the app.
+- **Checks:** an active INR account; the name match (case, punctuation, honorifics and word order ignored; initials and small typos allowed; threshold 0.8); and the `sim_binding` control: `off` allows any UPI ID in the customer's name, `monitor` allows it but logs when it isn't the one on the verified mobile, `enforce` allows only the UPI ID the bank links to the verified mobile. Each verify or lookup counts towards `vpa_verifications_per_hour`.
+- **Linking** needs step-up, KYC T1 or higher and a device past its cooling period. It requests a `LINK` consent for one year and stores the link as `pending`. The customer approves it with their UPI PIN under App Permissions on the mock bank website; only then is the link `active`. A consent rejected, expired or not approved within 30 minutes makes the link `failed`. At most 3 pending or active links per customer, and a UPI ID can be active for only one customer.
+- **The first active link becomes the default.** Removing the default promotes the oldest remaining link. Linking and unlinking send a security alert.
+- **Consent state** comes from `consent.updated` webhooks (signature checked, events de-duplicated in `bank_events`, and the consent re-read from the bank rather than trusted from the event body). Pending links are also re-checked whenever the customer lists their links, because the hosted bank can't reach a laptop. A revoked or expired consent ends an active link. A consent the app didn't request never creates a link.
+- **Unlinking** stops the app using the UPI ID at once. The bank has no API for the app to withdraw its consent, so the customer does that on the bank's website.
+- **Deferred:** the `/events` poller (needs the task worker), `STATEMENT` consent for insights (M10), and the plugin health view on the admin website.
 
 **Controls**
 - Rate-limit VPA validation so it cannot be used to harvest other people's names.
@@ -489,6 +512,7 @@ What "returns" can legally mean here:
 - **Channels:** SMS goes through a provider with a TRAI DLT-registered sender ID and templates. Email uses SPF, DKIM and DMARC.
 - **Content:** push notifications never contain OTPs or full account details, and everything sensitive is masked.
 - **Security alerts:** sent for a new device, UPI link or unlink, PIN change, and profile changes.
+- **Development:** the `dev_messages` plugin sends nothing real. It keeps every message for the admin website's Dev inbox (development only, kept for a day) and pushes SMS into a running Android emulator with `adb emu sms send`.
 
 ### M14: Grievance and disputes
 - **Disputes:** a customer can raise a complaint or dispute from any transaction, with the reference prefilled, and track it in the app.
@@ -801,6 +825,7 @@ It plays two roles:
 | Endpoint | Purpose | Used for (app module) |
 |---|---|---|
 | `GET /upi/{upi_id}/verify` | Account holder name, currency, status; no balance. Rate-limited | UPI ID validation (M3) |
+| `POST /upi/lookup` | The UPI ID a customer has linked to their mobile number (sent in the body, not the URL), in the same shape as `verify`. `422 VALIDATION_ERROR` if the number is linked to no UPI ID. Shares `verify`'s limit of 10 calls a minute per client | Finding the customer's account by mobile number (M3) |
 | `POST /consents`, `GET /consents/{id}`, `GET /consents?upi_id=&status=` | Customer-approved permission to link (`LINK`), read statements (`STATEMENT`) or read balance (`BALANCE`), with a date range and expiry | Proof of ownership (M3), statements (M10), consent records (M9) |
 | `POST /collect-requests`, `GET /collect-requests/{id}` | Request money from a customer's UPI ID. The customer approves with their UPI PIN on the mock bank website. States: `PENDING`, `SUCCESS`, `FAILED`, `DECLINED`, `EXPIRED` | Add money (M4, M5) |
 | `POST /upi/{upi_id}/pay` | Transfer from a client-owned UPI ID to any UPI ID. The bank locks the accounts and checks currency | Merchant payments, withdrawals, cashback funding (M4, M5) |
@@ -820,7 +845,7 @@ The UPI PIN is set and entered only on the mock bank website, never in the app. 
 
 1. On the mock bank website, sign up one business customer for the company, for example "PaymentsApp".
 2. Give it two INR accounts, Escrow and Operating, each with its own UPI ID, for example `paymentsappescrow@okmockbank` and `paymentsappops@okmockbank`.
-3. Issue an API client for the app, owned by that customer, with the mock bank's CLI (`create-client --owner <customer_id>`). Set its webhook URL to the app's `POST /v1/webhooks/mockbank`. Put the key and the webhook secret in the secrets manager (`.env` locally). The key is shown only once.
+3. Issue an API client for the app, owned by that customer, on the **Developer** page of the mock bank website while signed in as that customer (or with the mock bank's CLI, `create-client --owner <customer_id>`). Set its webhook URL to the app's `POST /v1/webhooks/mockbank`. Put the key and the webhook secret in the secrets manager (`.env` locally). The key is shown only once.
 4. Register the escrow and operating UPI IDs as the mock issuer plugin on the admin website (3.1).
 5. Check that the escrow balance is zero. From then on it must always equal the sum of all customer wallet GL balances.
 
@@ -834,7 +859,7 @@ Merchants and test customers are created as ordinary customers on the mock bank 
 
 | Flow | Mock bank calls | App ledger entry (M4) |
 |---|---|---|
-| Link a UPI ID (M3) | `GET /upi/{id}/verify`; then `POST /consents` with `LINK` (and `STATEMENT` if the customer opted in to insights). The customer approves on the mock bank website | None |
+| Link a UPI ID (M3) | `POST /upi/lookup` with the verified mobile, or `GET /upi/{id}/verify` for a typed UPI ID; then `POST /consents` with `LINK` (and `STATEMENT` if the customer opted in to insights). The customer approves on the mock bank website | None |
 | Add money | `POST /collect-requests` from the customer's UPI ID to escrow. The customer approves with their UPI PIN; the result comes by webhook or `GET /collect-requests/{id}` | On `SUCCESS`: debit escrow (asset), credit customer wallet (liability) |
 | Pay a merchant | `POST /upi/{escrow_upi}/pay` to the merchant's UPI ID | Hold on the wallet, then on success: debit customer wallet, credit escrow |
 | Withdraw to the customer's bank | `POST /upi/{escrow_upi}/pay` to the customer's linked UPI ID | Same as paying a merchant |

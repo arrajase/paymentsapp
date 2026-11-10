@@ -40,7 +40,6 @@ backend_modules = [
 ]
 module_files = ["__init__.py", "router.py", "schemas.py", "service.py", "models.py", "repository.py"]
 
-mobile_features = ["auth", "onboarding", "upi", "wallet", "payments", "insights", "deals", "support", "profile"]
 
 list_of_files = [
     # ---- Repository root ----
@@ -197,39 +196,9 @@ for module in backend_modules:
         list_of_files.append(f"{backend_pkg}/modules/{module}/{file}")
 
 # ---- Mobile (React Native + Expo, expo-router) ----
-mobile_files = [
-    f"{mobile_src}/app/_layout.tsx",
-    f"{mobile_src}/app/(auth)/sign-in.tsx",
-    f"{mobile_src}/app/(auth)/verify-otp.tsx",
-    f"{mobile_src}/app/(onboarding)/kyc.tsx",
-    f"{mobile_src}/app/(onboarding)/link-upi.tsx",
-    f"{mobile_src}/app/(onboarding)/set-app-pin.tsx",
-    f"{mobile_src}/app/(tabs)/_layout.tsx",
-    f"{mobile_src}/app/(tabs)/home.tsx",
-    f"{mobile_src}/app/(tabs)/wallet.tsx",
-    f"{mobile_src}/app/(tabs)/pay.tsx",
-    f"{mobile_src}/app/(tabs)/insights.tsx",
-    f"{mobile_src}/app/(tabs)/deals.tsx",
-    f"{mobile_src}/app/(tabs)/profile.tsx",
-    f"{mobile_src}/core/api/client.ts",
-    f"{mobile_src}/core/api/idempotency.ts",
-    f"{mobile_src}/core/security/device-binding.ts",
-    f"{mobile_src}/core/security/device-integrity.ts",
-    f"{mobile_src}/core/security/secure-storage.ts",
-    f"{mobile_src}/core/security/biometrics.ts",
-    f"{mobile_src}/core/security/screen-protection.ts",
-    f"{mobile_src}/core/config/env.ts",
-    f"{mobile_src}/core/config/app-config.ts",
-    f"{mobile_src}/ui/theme.ts",
-    f"{mobile_src}/ui/components/.gitkeep",
-]
-
-for feature in mobile_features:
-    mobile_files += [
-        f"{mobile_src}/features/{feature}/api.ts",
-        f"{mobile_src}/features/{feature}/hooks.ts",
-        f"{mobile_src}/features/{feature}/components/.gitkeep",
-    ]
+# The mobile app is real code now, built by hand. Only folders for later features are scaffolded: empty .ts files
+# would fail the TypeScript check, so they get a .gitkeep instead.
+mobile_files = [f"{mobile_src}/features/{feature}/.gitkeep" for feature in ("upi", "wallet", "payments", "insights", "deals")]
 
 # ---- Admin website (Next.js, App Router) ----
 # The admin website is now real code, built by hand; only the folders still to be filled are scaffolded here.

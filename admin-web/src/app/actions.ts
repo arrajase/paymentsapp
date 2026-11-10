@@ -83,6 +83,32 @@ export async function proposeChange(pluginKey: string, _: FormState, form: FormD
   redirect("/approvals");
 }
 
+export async function proposeControlChange(
+  key: string,
+  kind: "state" | "number" | "feature",
+  _: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const raw = text(form, "value");
+  let value: boolean | number | string = raw;
+  if (kind === "feature") value = raw === "true";
+  if (kind === "number") {
+    if (!/^-?\d+$/.test(raw)) return { error: "Enter a whole number." };
+    value = Number(raw);
+  }
+  try {
+    await backend<ChangeRequest>(`/admin/v1/controls/${encodeURIComponent(key)}/change-requests`, {
+      method: "POST",
+      body: JSON.stringify({ value, reason: text(form, "reason") }),
+    });
+  } catch (error) {
+    return failure(error);
+  }
+  revalidatePath("/controls");
+  revalidatePath("/approvals");
+  return { message: "Submitted for approval." };
+}
+
 export async function decide(
   requestId: string,
   decision: "approve" | "reject",
@@ -103,6 +129,7 @@ export async function decide(
   }
   revalidatePath("/approvals");
   revalidatePath("/plugins");
+  revalidatePath("/controls");
   return { message: decision === "approve" ? "Approved and applied." : "Rejected." };
 }
 
@@ -116,5 +143,6 @@ export async function cancelRequest(requestId: string, _: FormState): Promise<Fo
   }
   revalidatePath("/approvals");
   revalidatePath("/plugins");
+  revalidatePath("/controls");
   return { message: "Withdrawn." };
 }

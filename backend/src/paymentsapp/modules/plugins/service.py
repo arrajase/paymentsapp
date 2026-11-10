@@ -326,9 +326,33 @@ def _snapshot(setting: PluginSetting, secrets: dict[str, str]) -> dict[str, Any]
 
 
 async def approve(session: AsyncSession, admin: AdminContext, request_id: uuid.UUID, note: str | None) -> ChangeRequest:
+    """Apply a pending change of any kind (plugin or runtime control), then close the request. One transaction."""
     request = await _pending(session, request_id)
     if request.requested_by == admin.user.id:
         raise AppError("SAME_ADMIN", "a different admin must approve this change", status_code=403)
+
+    now = _now()
+    if request.target_type == TARGET_PLUGIN:
+        await _apply_plugin_change(session, admin, request, now)
+    else:
+        # Imported here: the controls module uses this module's change-request model, not the other way round.
+        from paymentsapp.modules.controls.service import apply_control_change
+
+        await apply_control_change(session, admin, request, now)
+
+    request.status = "APPROVED"
+    request.decided_by = admin.user.id
+    request.decided_at = now
+    request.decision_note = (note or "").strip() or None
+    request.secret_values = {}
+    await session.flush()
+    await session.commit()
+    return request
+
+
+async def _apply_plugin_change(
+    session: AsyncSession, admin: AdminContext, request: ChangeRequest, now: datetime
+) -> None:
     setting = await session.get(PluginSetting, request.target_key, with_for_update=True)
     if setting is None:
         raise AppError("NOT_FOUND", "the plugin no longer exists", status_code=404)
@@ -344,7 +368,6 @@ async def approve(session: AsyncSession, admin: AdminContext, request_id: uuid.U
     }
     before = _snapshot(setting, {n: s.preview for n, s in existing.items()})
 
-    now = _now()
     if "enabled" in request.changes:
         setting.enabled = bool(request.changes["enabled"])
     if "mode" in request.changes:
@@ -368,12 +391,6 @@ async def approve(session: AsyncSession, admin: AdminContext, request_id: uuid.U
     setting.version += 1
     setting.updated_at = now
     setting.updated_by = str(admin.user.id)
-
-    request.status = "APPROVED"
-    request.decided_by = admin.user.id
-    request.decided_at = now
-    request.decision_note = (note or "").strip() or None
-    request.secret_values = {}
     await session.flush()
 
     after = _snapshot(setting, {n: s.preview for n, s in existing.items()})
@@ -386,8 +403,6 @@ async def approve(session: AsyncSession, admin: AdminContext, request_id: uuid.U
         before=before,
         after={**after, "request_id": str(request.id), "requested_by": requester, "version": setting.version},
     )
-    await session.commit()
-    return request
 
 
 async def reject(session: AsyncSession, admin: AdminContext, request_id: uuid.UUID, note: str) -> ChangeRequest:
@@ -418,8 +433,8 @@ async def _close(
     await record(
         session,
         admin.actor,
-        f"plugin.change_{status.lower()}",
-        TARGET_PLUGIN,
+        f"{request.target_type}.change_{status.lower()}",
+        request.target_type,
         request.target_key,
         after={"request_id": str(request.id), "note": request.decision_note},
     )

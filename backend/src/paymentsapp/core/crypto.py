@@ -8,6 +8,8 @@ encryption through a KMS (plan 7.3), behind the same encrypt/decrypt calls.
 """
 
 import base64
+import hashlib
+import hmac
 import os
 from functools import lru_cache
 
@@ -70,6 +72,19 @@ class FieldCipher:
 
     def needs_rotation(self, stored: str) -> bool:
         return not stored.startswith(f"{self._active}:")
+
+
+def blind_index(kind: str, value: str) -> str:
+    """Keyed hash of a normalised identifier, for exact-match lookup without storing the value in plain text."""
+    key = get_settings().blind_index_key
+    if key is None:
+        raise RuntimeError("BLIND_INDEX_KEY is not set in backend/.env")
+    return hmac.new(key.get_secret_value().encode(), f"{kind}:{value}".encode(), hashlib.sha256).hexdigest()
+
+
+def keyed_hash(purpose: str, value: str) -> str:
+    """Keyed hash for short secrets such as OTPs, so a database copy can't be brute-forced offline."""
+    return blind_index(f"secret:{purpose}", value)
 
 
 @lru_cache

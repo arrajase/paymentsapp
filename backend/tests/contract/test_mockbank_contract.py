@@ -105,3 +105,7 @@ async def test_pay_is_idempotent_and_findable_by_reference(bank: MockBankClient)
     assert first.status is TxnStatus.SUCCESS
     assert replay.transaction_id == first.transaction_id
     assert found is not None and found.transaction_id == first.transaction_id
+
+
+async def test_lookup_of_an_unlinked_mobile_is_none(bank: MockBankClient) -> None:
+    assert await bank.lookup_mobile("+919999999990") is None

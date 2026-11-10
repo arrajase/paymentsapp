@@ -1,0 +1,32 @@
+# Feature switches (plan 3.2). Each one is a kill switch: turning it off stops that feature at once.
+# The admin website changes them only within `allowed` (default: on or off), with a second admin's approval.
+# Changing this file needs a reviewed pull request.
+
+version: 1
+
+features:
+  customer_signup:
+    description: New customers can sign up in the mobile app
+    default: {development: true, staging: true, production: false}
+  wallet:
+    description: Wallet balance, add money and pay merchants
+    default: {development: true, staging: true, production: false}
+  upi_linking:
+    description: Customers can link a UPI ID
+    default: {development: true, staging: true, production: false}
+  p2p_transfers:
+    description: Wallet-to-wallet transfers (full KYC only)
+    default: {development: true, staging: true, production: false}
+  withdrawals:
+    description: Withdraw wallet money to a bank account (full KYC only)
+    default: {development: true, staging: true, production: false}
+  ai_insights:
+    description: AI spend insights (needs the customer's consent)
+    default: {development: false, staging: false, production: false}
+  ai_deals:
+    description: AI deals, offers and savings tips
+    default: {development: false, staging: false, production: false}
+  ai_deals_investments:
+    description: Regulated investment suggestions; needs a SEBI or AMFI arrangement (plan section 2)
+    allowed: {production: [false]}
+    default: {development: false, staging: false, production: false}

@@ -7,6 +7,7 @@ import { ROLE_LABELS } from "@/lib/format";
 
 const NAV = [
   { href: "/plugins", label: "Plugins" },
+  { href: "/controls", label: "Controls" },
   { href: "/approvals", label: "Approvals" },
   { href: "/audit", label: "Audit log" },
 ];
@@ -24,7 +25,7 @@ export default async function ConsoleLayout({ children }: LayoutProps<"/">) {
           </div>
         </div>
         <nav className="flex-1 space-y-1 p-3">
-          {NAV.map((item) => (
+          {[...NAV, ...(system.environment === "development" ? [{ href: "/dev-inbox", label: "Dev inbox" }] : [])].map((item) => (
             <Link
               key={item.href}
               href={item.href}

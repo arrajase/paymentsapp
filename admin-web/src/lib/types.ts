@@ -50,7 +50,7 @@ export type ChangeRequest = {
   target_type: string;
   target_key: string;
   status: RequestStatus;
-  changes: { enabled?: boolean; mode?: string; config?: Record<string, string> };
+  changes: { enabled?: boolean; mode?: string; config?: Record<string, string>; value?: boolean | number | string };
   secrets: Record<string, string>;
   reason: string;
   requested_by: AdminRef;
@@ -72,5 +72,39 @@ export type AuditEntry = {
   before: Record<string, unknown> | null;
   after: Record<string, unknown> | null;
 };
+
+export type ControlValue = boolean | number | string;
+
+export type Control = {
+  key: string;
+  kind: "state" | "number" | "feature";
+  description: string;
+  value: ControlValue;
+  source: string;
+  default: ControlValue;
+  allowed: ControlValue[];
+  bounds: [number, number] | null;
+  looser: "lower" | "higher" | null;
+  client: boolean;
+  expires_at: string | null;
+  revert_value: ControlValue | null;
+  version: number;
+  updated_at: string | null;
+  updated_by: string | null;
+  pending_request_id: string | null;
+};
+
+export type DevMessage = {
+  id: number;
+  channel: "sms" | "email";
+  to_address: string;
+  purpose: string;
+  subject: string | null;
+  body: string;
+  pushed_to_emulator: boolean;
+  created_at: string;
+};
+
+export type DevInbox = { adb_found: boolean; messages: DevMessage[] };
 
 export type SystemInfo = { environment: string; webhook_url: string };

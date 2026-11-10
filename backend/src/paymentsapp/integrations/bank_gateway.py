@@ -168,6 +168,10 @@ class PaymentProvider(Protocol):
 
     async def verify_vpa(self, upi_id: str) -> VpaVerification: ...
 
+    async def lookup_mobile(self, mobile: str) -> VpaVerification | None:
+        """The UPI ID the bank has linked to this mobile number (+91 and 10 digits), or None (account discovery)."""
+        ...
+
     async def request_consent(
         self,
         upi_id: str,

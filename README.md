@@ -74,8 +74,9 @@ npm run dev                       # http://localhost:3000
 ```
 
 Sign in with an admin account (see *Admin accounts* above) and the code from your authenticator app. Pages:
-**Plugins** (settings, secrets shown as previews, propose a change), **Approvals** (approve, reject or withdraw) and
-**Audit log**. A change takes effect only after a different admin with the `security_approver` role approves it.
+**Plugins** (settings, secrets shown as previews, propose a change), **Controls** (security controls and feature
+switches, within the limits in `config/security_controls.yaml` and `config/features.yaml`), **Approvals** (approve,
+reject or withdraw) and **Audit log**. A change takes effect only after a different admin with the `security_approver` role approves it.
 
 The first time, import the mock bank values from `backend/.env` into the plugin registry:
 
@@ -86,13 +87,44 @@ uv run python -m paymentsapp.cli seed-plugins
 
 After that, change them on the admin website rather than in `.env`.
 
+## Mobile app
+
+Expo (React Native), running in Expo Go on the Android emulator. Start the backend first (port 8001), then:
+
+```
+cd mobile
+npm install
+cp .env.example .env.local        # EXPO_PUBLIC_API_URL=http://10.0.2.2:8001 (the emulator's name for this PC)
+npx expo start --android          # installs Expo Go on the emulator the first time, then opens the app
+```
+
+Sign up with a test number such as `+91 90000 00001`. The code arrives as an SMS in the emulator (when `adb` is on
+PATH or `ADB_PATH` is set in `backend/.env`) and on the admin website's **Dev inbox**. To try fingerprint unlock, add
+a fingerprint in the emulator's Android settings, switch it on in the app, then touch the sensor from the emulator's
+extended controls (or run `adb -e emu finger touch 1`).
+
+Checks: `npm run typecheck` and `npm run lint`.
+
 ## Status
 
 Phase 0 (foundations) is in progress. Done: backend skeleton, logging with PII redaction, the error format, the
 mock bank adapter, the reviewed config files, the database layer with migrations, the hash-chained audit log, field
 encryption, admin sign-in with roles, the plugin registry with maker-checker approvals, and the admin website
-(sign-in, plugins, approvals, audit log). Next: runtime controls (feature flags and security controls) on the same
-approval workflow, then the mobile app shell.
+(sign-in, plugins, controls, approvals, audit log, Dev inbox), and runtime controls with `GET /v1/app-config` for the
+mobile app.
+
+Phase 1 (customer onboarding) backend is done: sign-up and sign-in by OTP, device registration with an app PIN,
+device-signed returning sign-in, rotating refresh tokens, a second identifier, slim KYC (T0, T1, mock T2) and consents.
+Try it from http://localhost:8001/docs: request a code, read it on the admin website's **Dev inbox**, then verify it.
+The mobile app covers the same flows on the Android emulator.
+
+Phase 2 (UPI linking) is built: step-up confirmation with the app PIN and device key, finding the customer's UPI ID
+by their verified mobile at the mock bank, the KYC name match, a `LINK` consent approved with the UPI PIN on the mock
+bank website, set default, unlink, and the signed bank webhook. To try it in the app, complete minimum KYC with the
+same name as the mock bank account (for the test customer `test1`, **Test User**), open **Bank accounts (UPI)**, link
+the UPI ID found for your mobile, then approve the request under **App Permissions** on the mock bank website and
+tap **I've approved it**. Still to do in Phase 2: the `/events` poller and the plugin health view on the admin
+website.
 
 Integration tests wipe and rebuild the `*_test` database on every run. CI has no database, so it runs unit tests
 only.

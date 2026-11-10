@@ -2,7 +2,9 @@
 # The admin website changes controls only within these limits. Changing this file needs a reviewed pull request.
 #
 # State controls: enforce (block), monitor (log and feed the risk engine), off (not run).
-# Number controls: an adjustable value within [min, max].
+# Keep the states in quotes: unquoted, YAML reads off as false.
+# Number controls: an adjustable value within [min, max]; `looser` says which direction weakens security.
+# client: true means the mobile app receives the setting in GET /v1/app-config. The server still enforces it.
 
 version: 1
 
@@ -12,50 +14,65 @@ production_loosening_expiry_hours: 24
 
 controls:
   app_attestation:
+    client: true
     description: Play Integrity / App Attest token checked at login and before payments
     kind: state
-    allowed: {development: [off, monitor], staging: [monitor, enforce], production: [enforce]}
-    default: {development: off, staging: monitor, production: enforce}
+    allowed: {development: ["off", "monitor"], staging: ["monitor", "enforce"], production: ["enforce"]}
+    default: {development: "off", staging: "monitor", production: "enforce"}
 
   device_integrity_detection:
+    client: true
     description: Root, jailbreak, emulator and hooking detection
     kind: state
-    allowed: {development: [off, monitor], staging: [enforce], production: [enforce]}
-    default: {development: monitor, staging: enforce, production: enforce}
+    allowed: {development: ["off", "monitor"], staging: ["enforce"], production: ["enforce"]}
+    default: {development: "monitor", staging: "enforce", production: "enforce"}
 
   hardware_device_key:
+    client: true
     description: Device key must be hardware-backed; off accepts a software key (emulator)
     kind: state
-    allowed: {development: [off, enforce], staging: [enforce], production: [enforce]}
-    default: {development: off, staging: enforce, production: enforce}
+    allowed: {development: ["off", "enforce"], staging: ["enforce"], production: ["enforce"]}
+    default: {development: "off", staging: "enforce", production: "enforce"}
 
   certificate_pinning:
+    client: true
     description: Public-key pinning in the mobile app
     kind: state
-    allowed: {development: [off, enforce], staging: [enforce], production: [enforce]}
-    default: {development: off, staging: enforce, production: enforce}
+    allowed: {development: ["off", "enforce"], staging: ["enforce"], production: ["enforce"]}
+    default: {development: "off", staging: "enforce", production: "enforce"}
 
   screen_capture_protection:
+    client: true
     description: FLAG_SECURE and capture detection on PIN, OTP, balance and KYC screens
     kind: state
-    allowed: {development: [off, enforce], staging: [enforce], production: [enforce]}
-    default: {development: off, staging: enforce, production: enforce}
+    allowed: {development: ["off", "enforce"], staging: ["enforce"], production: ["enforce"]}
+    default: {development: "off", staging: "enforce", production: "enforce"}
+
+  sim_binding:
+    description: The phone's SIM must match the customer's mobile number before UPI (off with the mock bank)
+    client: true
+    kind: state
+    allowed: {development: ["off", "monitor", "enforce"], staging: ["off", "enforce"], production: ["enforce"]}
+    default: {development: "off", staging: "off", production: "enforce"}
 
   new_device_cooling_hours:
     description: Reduced limits after a new device or reinstall
     kind: number
+    looser: lower
     bounds: {development: [0, 72], staging: [0, 72], production: [12, 72]}
     default: {development: 0, staging: 24, production: 24}
 
   otp_requests_per_hour:
     description: OTP requests allowed per identifier per hour
     kind: number
+    looser: higher
     bounds: {development: [1, 100], staging: [3, 10], production: [3, 10]}
     default: {development: 50, staging: 5, production: 5}
 
   vpa_verifications_per_hour:
     description: UPI ID checks allowed per customer per hour (stops name harvesting)
     kind: number
+    looser: higher
     bounds: {development: [1, 100], staging: [3, 20], production: [3, 20]}
     default: {development: 50, staging: 10, production: 10}
 

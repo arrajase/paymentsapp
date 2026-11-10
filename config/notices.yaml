@@ -1,0 +1,26 @@
+# Privacy notice and consent texts customers accept (plan M9, 8.6). Each consent record stores the version accepted.
+# These are PLACEHOLDERS for development. The real wording comes from counsel (build roadmap, Track B) before any
+# real customer data is collected. Changing a version makes customers accept the new text.
+
+version: 1
+
+purposes:
+  terms_and_privacy:
+    required: true
+    version: "0.1-placeholder"
+    title: Terms of use and privacy notice
+    summary: >-
+      PLACEHOLDER, not legal text. We use your details to run your wallet, verify who you are and meet our legal
+      obligations. Records the law requires us to keep are kept even if you close your account.
+  ai_insights:
+    required: false
+    version: "0.1-placeholder"
+    title: AI spend insights
+    summary: >-
+      PLACEHOLDER. Let us analyse your wallet and linked bank transactions to show spending insights. You can switch
+      this off at any time; we then delete data held only for it.
+  marketing:
+    required: false
+    version: "0.1-placeholder"
+    title: Offers and updates
+    summary: PLACEHOLDER. Send me offers and product updates.

@@ -56,6 +56,8 @@ def test_every_control_covers_every_environment_with_a_valid_default(controls: d
 def test_production_never_offers_off(controls: dict[str, Any]) -> None:
     for name, control in controls["controls"].items():
         if control["kind"] == "state":
+            # An unquoted off loads as False, which would make the check below pass by accident.
+            assert all(isinstance(s, str) for env in ENVIRONMENTS for s in control["allowed"][env]), name
             assert "off" not in control["allowed"]["production"], f"{name} must not be switchable off in production"
 
 
@@ -66,3 +68,28 @@ def test_production_is_never_looser_than_staging(controls: dict[str, Any]) -> No
             weakest_prod = min(strictness[s] for s in control["allowed"]["production"])
             weakest_staging = min(strictness[s] for s in control["allowed"]["staging"])
             assert weakest_prod >= weakest_staging, name
+
+
+def test_number_controls_say_which_direction_loosens_them(controls: dict[str, Any]) -> None:
+    for name, control in controls["controls"].items():
+        if control["kind"] == "number":
+            assert control.get("looser") in {"lower", "higher"}, name
+
+
+def test_features_have_valid_defaults_and_investments_stay_off_in_production() -> None:
+    features = load_yaml_config("features")["features"]
+    for name, feature in features.items():
+        for env in ENVIRONMENTS:
+            default = feature["default"][env]
+            allowed = feature.get("allowed", {}).get(env, [True, False])
+            assert isinstance(default, bool) and default in allowed, f"{name}/{env}"
+    assert features["ai_deals_investments"]["allowed"]["production"] == [False]
+
+
+def test_catalogue_loads_for_every_environment() -> None:
+    from paymentsapp.modules.controls.catalogue import load_control_catalogue
+
+    for env in Environment:
+        catalogue = load_control_catalogue(env)
+        for spec in catalogue.controls.values():
+            assert spec.validate(spec.default) is None, f"{env.value}: {spec.key} default is not allowed"

@@ -11,6 +11,8 @@ from paymentsapp.core.config import Environment, get_settings
 from paymentsapp.core.errors import AppError
 from paymentsapp.db.session import get_session
 from paymentsapp.modules.admin.service import AdminContext, AdminRole, SessionInvalid, resolve_session
+from paymentsapp.modules.identity.sessions import CustomerContext, resolve_access
+from paymentsapp.modules.identity.sessions import SessionInvalid as CustomerSessionInvalid
 
 DbSession = Annotated[AsyncSession, Depends(get_session)]
 
@@ -49,6 +51,21 @@ async def current_admin(
 
 
 CurrentAdmin = Annotated[AdminContext, Depends(current_admin)]
+
+
+async def current_customer(
+    request: Request,
+    session: DbSession,
+    authorization: Annotated[str | None, Header()] = None,
+) -> CustomerContext:
+    """The signed-in customer. Only customer access tokens work here; admin and refresh tokens are refused."""
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise CustomerSessionInvalid()
+    return await resolve_access(session, token.strip(), ip=client_ip(request))
+
+
+CurrentCustomer = Annotated[CustomerContext, Depends(current_customer)]
 
 
 def require_roles(*roles: AdminRole) -> Callable[..., Awaitable[AdminContext]]:

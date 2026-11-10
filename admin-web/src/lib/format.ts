@@ -11,6 +11,13 @@ export function formatDateTime(iso: string | null | undefined): string {
   return iso ? `${dateTime.format(new Date(iso))} IST` : "—";
 }
 
+/** How a control value reads on screen: feature switches as on/off, everything else as is. */
+export function showValue(value: boolean | number | string | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "boolean") return value ? "on" : "off";
+  return String(value);
+}
+
 export function hasRole(admin: Admin, role: Role): boolean {
   return admin.roles.includes(role);
 }

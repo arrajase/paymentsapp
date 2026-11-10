@@ -1,9 +1,9 @@
 import Link from "next/link";
 
 import { ErrorPanel, PageHeader, StatusBadge } from "@/components/ui";
-import { ApiError, getChangeRequests, getMe, getPlugins } from "@/lib/api";
-import { formatDateTime, hasRole } from "@/lib/format";
-import type { ChangeRequest, Plugin, RequestStatus } from "@/lib/types";
+import { ApiError, getChangeRequests, getControls, getMe, getPlugins } from "@/lib/api";
+import { formatDateTime, hasRole, showValue } from "@/lib/format";
+import type { ChangeRequest, Control, Plugin, RequestStatus } from "@/lib/types";
 
 import { CancelForm, DecisionForm } from "./decision-forms";
 
@@ -15,24 +15,26 @@ const TABS: { status: RequestStatus | "ALL"; label: string }[] = [
 export default async function ApprovalsPage({ searchParams }: PageProps<"/approvals">) {
   const { status: raw } = await searchParams;
   const tab = raw === "ALL" ? "ALL" : "PENDING";
-  let requests, me, plugins;
+  let requests, me, plugins, controls;
   try {
-    [requests, me, plugins] = await Promise.all([
+    [requests, me, plugins, controls] = await Promise.all([
       getChangeRequests(tab === "ALL" ? undefined : "PENDING"),
       getMe(),
       getPlugins(),
+      getControls(),
     ]);
   } catch (error) {
     if (error instanceof ApiError) return <ErrorPanel message={error.message} />;
     throw error;
   }
   const pluginsByKey = new Map(plugins.map((p) => [p.key, p]));
+  const controlsByKey = new Map(controls.map((c) => [c.key, c]));
 
   return (
     <>
       <PageHeader
         title="Approvals"
-        description="Every plugin change needs a second admin. Security approvers decide; the proposer can withdraw."
+        description="Every plugin and control change needs a second admin. Security approvers decide; the proposer can withdraw."
       />
       <div className="mb-5 flex gap-2">
         {TABS.map((t) => (
@@ -71,7 +73,11 @@ export default async function ApprovalsPage({ searchParams }: PageProps<"/approv
                 <StatusBadge status={request.status} />
               </div>
 
-              <ChangeTable request={request} plugin={pluginsByKey.get(request.target_key)} />
+              <ChangeTable
+                request={request}
+                plugin={request.target_type === "plugin" ? pluginsByKey.get(request.target_key) : undefined}
+                control={request.target_type === "control" ? controlsByKey.get(request.target_key) : undefined}
+              />
 
               <p className="mt-4 text-sm">
                 <span className="font-medium">Reason:</span> {request.reason}
@@ -102,8 +108,11 @@ export default async function ApprovalsPage({ searchParams }: PageProps<"/approv
   );
 }
 
-function ChangeTable({ request, plugin }: { request: ChangeRequest; plugin?: Plugin }) {
+function ChangeTable({ request, plugin, control }: { request: ChangeRequest; plugin?: Plugin; control?: Control }) {
   const rows: { label: string; from: string; to: string }[] = [];
+  if (request.changes.value !== undefined) {
+    rows.push({ label: "Value", from: control ? showValue(control.value) : "?", to: showValue(request.changes.value) });
+  }
   if (request.changes.enabled !== undefined) {
     rows.push({
       label: "Enabled",

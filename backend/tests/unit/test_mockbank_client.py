@@ -337,3 +337,25 @@ def test_circuit_half_opens_after_reset_and_closes_on_success() -> None:
     now[0] = 20.0
     breaker.record_success()
     assert breaker.state == "closed"
+
+
+async def test_lookup_mobile_sends_ten_digits_in_the_body() -> None:
+    bank = FakeBank(
+        httpx.Response(
+            200, json={"upi_id": CUSTOMER, "account_holder_name": "Jane Doe", "currency": "INR", "status": "ACTIVE"}
+        )
+    )
+    client, _ = make_client(bank)
+
+    found = await client.lookup_mobile("+919000000001")
+
+    assert found is not None and found.upi_id == CUSTOMER
+    request = bank.requests[0]
+    assert request.method == "POST" and request.url.path == "/upi/lookup"
+    assert json.loads(request.content) == {"mobile_number": "9000000001"}
+    assert "9000000001" not in str(request.url)
+
+
+async def test_lookup_of_an_unlinked_mobile_is_none() -> None:
+    client, _ = make_client(FakeBank(bank_error("VALIDATION_ERROR")))
+    assert await client.lookup_mobile("+919000000002") is None

@@ -11,6 +11,7 @@ interfaces:
   aa: Customer bank statements under consent
   kyc: PAN, Aadhaar e-KYC, video KYC, CKYC
   screening: Sanctions, PEP and negative lists
+  messaging: SMS and email to customers (OTPs and alerts)
 
 plugins:
   mockbank:
@@ -34,6 +35,10 @@ plugins:
     description: Static sanctions and PEP test lists
     implements: [screening]
     modes: [mock]
+  dev_messages:
+    description: Development only. Sends nothing; keeps messages in the dev inbox and pushes SMS into a running Android emulator
+    implements: [messaging]
+    modes: [mock]
 
 environments:
   development:
@@ -43,6 +48,7 @@ environments:
       aa: {mockbank: [mock]}
       kyc: {mock_kyc: [mock]}
       screening: {static_lists: [mock]}
+      messaging: {dev_messages: [mock]}
   staging:
     allowed:
       issuer: {mockbank: [mock]}

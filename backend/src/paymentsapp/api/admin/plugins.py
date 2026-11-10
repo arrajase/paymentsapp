@@ -76,7 +76,7 @@ def _request_out(view: service.RequestView) -> ChangeRequestOut:
     )
 
 
-async def _one_request(session: DbSession, request_id: uuid.UUID) -> ChangeRequestOut:
+async def one_request(session: DbSession, request_id: uuid.UUID) -> ChangeRequestOut:
     views = {v.request.id: v for v in await service.list_requests(session, limit=500)}
     return _request_out(views[request_id])
 
@@ -107,7 +107,7 @@ async def propose(plugin_key: str, body: ProposeChange, admin: Maker, session: D
         config=body.config,
         secrets=body.secrets,
     )
-    return await _one_request(session, request.id)
+    return await one_request(session, request.id)
 
 
 @router.get("/change-requests", response_model=list[ChangeRequestOut])
@@ -122,19 +122,19 @@ async def list_change_requests(
 @router.post("/change-requests/{request_id}/approve", response_model=ChangeRequestOut)
 async def approve(request_id: uuid.UUID, body: Decision, admin: Checker, session: DbSession) -> ChangeRequestOut:
     await service.approve(session, admin, request_id, body.note)
-    return await _one_request(session, request_id)
+    return await one_request(session, request_id)
 
 
 @router.post("/change-requests/{request_id}/reject", response_model=ChangeRequestOut)
 async def reject(request_id: uuid.UUID, body: Decision, admin: Checker, session: DbSession) -> ChangeRequestOut:
     await service.reject(session, admin, request_id, body.note or "")
-    return await _one_request(session, request_id)
+    return await one_request(session, request_id)
 
 
 @router.post("/change-requests/{request_id}/cancel", response_model=ChangeRequestOut)
 async def cancel(request_id: uuid.UUID, admin: Maker, session: DbSession) -> ChangeRequestOut:
     await service.cancel(session, admin, request_id)
-    return await _one_request(session, request_id)
+    return await one_request(session, request_id)
 
 
 @router.get("/audit", response_model=list[AuditEntryOut])

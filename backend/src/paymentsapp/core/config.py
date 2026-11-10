@@ -38,6 +38,26 @@ class Settings(BaseSettings):
     # Field encryption keys "k1=<base64>[,k0=<old>]"; the first encrypts, all decrypt (plan 7.3).
     field_encryption_keys: SecretStr | None = None
 
+    # Key for blind indexes: keyed hashes that let us find a customer by email or mobile without storing it in
+    # plain text (plan 7.3). Unlike encryption keys it can't rotate without rebuilding the indexes, so keep it stable.
+    blind_index_key: SecretStr | None = None
+
+    # Customer sign-in (plan M1)
+    otp_ttl_seconds: int = 300
+    otp_max_attempts: int = 5
+    otp_resend_cooldown_seconds: int = 30
+    otp_ip_hourly_multiplier: int = 4  # an IP may request this many times the per-identifier hourly limit
+    customer_access_token_minutes: int = 10
+    customer_refresh_token_days: int = 30
+    enrolment_token_minutes: int = 10
+    device_challenge_seconds: int = 120
+    pin_max_attempts: int = 5
+    pin_lockout_minutes: int = 30
+    step_up_token_minutes: int = 5
+
+    # Development only: where the dev messaging plugin finds adb to push SMS into the Android emulator.
+    adb_path: str | None = None
+
     # Admin website sign-in (plan M16)
     # The authenticator code can be switched off for local demos only; staging and production always require it.
     admin_totp_required: bool = True

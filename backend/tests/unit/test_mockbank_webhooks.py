@@ -2,6 +2,7 @@
 
 import json
 import time
+from collections.abc import Callable
 
 import pytest
 
@@ -35,19 +36,21 @@ def test_header_names_are_case_insensitive() -> None:
     assert parse_webhook(SECRET, BODY, headers).event_id == "evt_1"
 
 
+# Headers are built when the test runs, not at collection: a long test run would otherwise age the timestamps.
 @pytest.mark.parametrize(
-    "headers",
+    "make_headers",
     [
-        {},
-        {"X-MockBank-Signature": "garbage"},
-        {"X-MockBank-Signature": "t=notanumber,v1=abc"},
-        signed_headers(secret="wrong-secret"),
-        signed_headers(timestamp=int(time.time()) - 900),
-        signed_headers(timestamp=int(time.time()) + 900),
+        lambda: {},
+        lambda: {"X-MockBank-Signature": "garbage"},
+        lambda: {"X-MockBank-Signature": "t=notanumber,v1=abc"},
+        lambda: signed_headers(secret="wrong-secret"),
+        lambda: signed_headers(timestamp=int(time.time()) - 900),
+        lambda: signed_headers(timestamp=int(time.time()) + 900),
     ],
     ids=["missing", "malformed", "bad-timestamp", "wrong-secret", "stale", "future"],
 )
-def test_bad_signatures_are_rejected(headers: dict[str, str]) -> None:
+def test_bad_signatures_are_rejected(make_headers: Callable[[], dict[str, str]]) -> None:
+    headers = make_headers()
     with pytest.raises(WebhookVerificationError):
         parse_webhook(SECRET, BODY, headers)
 
