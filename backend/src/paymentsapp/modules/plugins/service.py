@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import SecretStr
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -230,6 +230,26 @@ def _validate(
             raise InvalidChange(f"{name!r} is not a secret of {setting.key}")
 
 
+async def _guard_money(session: AsyncSession, setting: PluginSetting, changes: dict[str, Any]) -> None:
+    """A bank plugin that holds customer money can't be switched off or pointed at another escrow account: the
+    money would be stranded, and the ledger would no longer match the bank (plan 3.1, M4)."""
+    disabling = changes.get("enabled") is False
+    moving_escrow = "escrow_upi_id" in (changes.get("config") or {})
+    if not (disabling or moving_escrow):
+        return
+    # Imported here: the ledger is a business module, and plugins sit below business modules.
+    from paymentsapp.modules.wallet.models import LedgerAccount
+
+    held = await session.scalar(
+        select(func.coalesce(func.sum(func.abs(LedgerAccount.balance)), 0)).where(LedgerAccount.provider == setting.key)
+    )
+    if held:
+        what = "disabled" if disabling else "moved to another escrow account"
+        raise InvalidChange(
+            f"{setting.key} holds customer money in the ledger, so it can't be {what}. Move the money out first."
+        )
+
+
 async def propose_change(
     session: AsyncSession,
     admin: AdminContext,
@@ -265,6 +285,7 @@ async def propose_change(
 
     all_settings = list((await session.scalars(select(PluginSetting))).all())
     _validate(get_catalogue(), setting, all_settings, changes, set(secrets))
+    await _guard_money(session, setting, changes)
 
     already_pending = await session.scalar(
         select(ChangeRequest.id).where(
@@ -361,6 +382,7 @@ async def _apply_plugin_change(
 
     all_settings = list((await session.scalars(select(PluginSetting))).all())
     _validate(get_catalogue(), setting, all_settings, request.changes, set(request.secret_values))
+    await _guard_money(session, setting, request.changes)  # checked again: money may have arrived since
 
     existing = {
         s.name: s

@@ -11,13 +11,17 @@ from paymentsapp.core.config import get_settings
 from paymentsapp.modules.admin.models import AdminUser
 from paymentsapp.modules.admin.service import AdminContext, AdminRole
 from paymentsapp.modules.audit.models import AuditEntry
-from paymentsapp.modules.plugins import service
+from paymentsapp.modules.plugins import health, service
+from paymentsapp.modules.plugins.models import PluginHealthCheck
 from paymentsapp.modules.plugins.schemas import (
     AdminRef,
     AuditEntryOut,
     ChangeRequestOut,
     Decision,
+    EventFeedOut,
     FieldOut,
+    HealthCheckOut,
+    PluginHealthOut,
     PluginOut,
     ProposeChange,
     SecretOut,
@@ -93,6 +97,36 @@ async def system(_: CurrentAdmin) -> SystemOut:
 @router.get("/plugins", response_model=list[PluginOut])
 async def list_plugins(_: CurrentAdmin, session: DbSession) -> list[PluginOut]:
     return [_plugin_out(v) for v in await service.list_plugins(session)]
+
+
+def _check_out(check: PluginHealthCheck | None) -> HealthCheckOut | None:
+    if check is None:
+        return None
+    return HealthCheckOut(checked_at=check.checked_at, ok=check.ok, latency_ms=check.latency_ms, detail=check.detail)
+
+
+@router.get("/plugins/health", response_model=list[PluginHealthOut])
+async def plugin_health(_: CurrentAdmin, session: DbSession) -> list[PluginHealthOut]:
+    return [
+        PluginHealthOut(
+            key=h.setting.key,
+            enabled=h.setting.enabled,
+            mode=h.setting.mode,
+            remote=h.remote,
+            circuit=h.circuit,
+            last_check=_check_out(h.last_check),
+            events=EventFeedOut(**h.events.__dict__) if h.events else None,
+        )
+        for h in await health.overview(session)
+    ]
+
+
+@router.post("/plugins/{plugin_key}/health-check", response_model=HealthCheckOut)
+async def run_health_check(plugin_key: str, admin: CurrentAdmin, session: DbSession) -> HealthCheckOut:
+    """Reach the partner now. Can take up to a minute while a sleeping mock bank wakes up."""
+    result = _check_out(await health.check(session, admin, plugin_key))
+    assert result is not None
+    return result
 
 
 @router.post("/plugins/{plugin_key}/change-requests", response_model=ChangeRequestOut, status_code=201)

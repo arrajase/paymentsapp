@@ -44,6 +44,7 @@ Use a separate API client and escrow account for each environment.
 | `422 VALIDATION_ERROR` on `POST /upi/lookup` | `lookup_mobile` returns `None`: no UPI ID is linked to that number. The adapter sends the 10 digits without `+91` |
 | `verify` and `lookup` limit (10 a minute per client) | `429 RATE_LIMITED` is retried after `Retry-After`; the app's own per-customer limit (`vpa_verifications_per_hour`) applies first |
 | Webhook | Signature checked on the raw bytes (HMAC-SHA256 of `t.body`), timestamp within 5 minutes, event ID header must match the body. Any failure raises `WebhookVerificationError` (the endpoint answers 401). `POST /v1/webhooks/mockbank` de-duplicates on `event_id`; for `consent.updated` it re-reads the consent from the bank before changing a link, and answers 503 if the bank can't be reached, so the event is delivered again |
+| Missed webhooks | The worker (`python -m paymentsapp.worker`) polls `GET /events?after=<cursor>` every 60 seconds and hands each event to the same handler as the webhook. The cursor is stored in `bank_event_cursors` |
 | Cold start (free-tier hosting) | `warm_up()` waits up to 90 s on `/health` (measured: about 43 s on 20 October 2026) |
 
 The adapter sends `currency: INR` on every money call. Amounts are integer paise (`amount_cents` on the wire).

@@ -1,0 +1,43 @@
+# Wallet limits by KYC tier (plan M2, M8, 8.4). Amounts are in paise: 1000000 = Rs 10,000.
+# Changing this file needs a reviewed pull request, and compliance sign-off once real customers exist.
+#
+# Source: RBI Master Directions on Prepaid Payment Instruments (2021, as amended). These are the regulatory
+# ceilings as we read them; compliance must confirm them, and the partner bank may set lower ones, before launch.
+# "month" is the calendar month and "year" the financial year (April to March), both in IST.
+# null means no limit of that kind.
+
+version: 1
+
+tiers:
+  T0:
+    wallet: false # registered only; no wallet until minimum KYC
+
+  T1: # small PPI, minimum KYC
+    wallet: true
+    max_balance: 1000000 # Rs 10,000 outstanding at any time
+    max_load_per_month: 1000000 # Rs 10,000 loaded per month
+    max_load_per_year: 12000000 # Rs 1,20,000 loaded per financial year
+    merchant_payments: true
+    p2p_transfers: false
+    withdrawals: false
+
+  T2: # full-KYC PPI
+    wallet: true
+    max_balance: 20000000 # Rs 2,00,000 outstanding at any time
+    max_load_per_month: null
+    max_load_per_year: null
+    merchant_payments: true
+    p2p_transfers: true
+    withdrawals: true
+    # Wallet-to-wallet transfers sent per month. Rs 10,000 is RBI's ceiling for recipients the customer hasn't
+    # registered in advance; the app has no beneficiary registration yet, so every recipient counts as one.
+    max_p2p_per_month: 1000000
+
+# Every money movement, whatever the tier.
+per_transaction:
+  min: 100 # Rs 1
+  max: 5000000 # Rs 50,000; a product limit, below the regulatory ones
+
+# While a newly registered device is in its cooling period (new_device_cooling_hours), each payment is capped
+# lower (plan M1, 7.7).
+new_device_max_per_transaction: 500000 # Rs 5,000

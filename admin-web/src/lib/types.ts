@@ -108,3 +108,39 @@ export type DevMessage = {
 export type DevInbox = { adb_found: boolean; messages: DevMessage[] };
 
 export type SystemInfo = { environment: string; webhook_url: string };
+
+export type HealthCheck = { checked_at: string; ok: boolean; latency_ms: number | null; detail: string };
+
+export type PluginHealth = {
+  key: string;
+  enabled: boolean;
+  mode: string;
+  remote: boolean;
+  circuit: "closed" | "open" | "half-open" | null;
+  last_check: HealthCheck | null;
+  events: {
+    last_webhook_at: string | null;
+    last_poll_at: string | null;
+    last_poll_success_at: string | null;
+    last_poll_error: string | null;
+    received_24h: number;
+  } | null;
+};
+
+export type ReconciliationRun = {
+  id: number;
+  provider: string;
+  business_date: string;
+  ran_at: string;
+  ran_by: string;
+  bank_balance: number | null;
+  ledger_balance: number;
+  matched: number;
+  clean: boolean;
+  issues: Record<string, string | number | null>[];
+};
+
+export type Reconciliation = {
+  totals: { escrow: number; in_transit: number; wallets: number };
+  runs: ReconciliationRun[];
+};

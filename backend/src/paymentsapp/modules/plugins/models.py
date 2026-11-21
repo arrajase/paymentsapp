@@ -67,3 +67,16 @@ class ChangeRequest(CreatedAtMixin, Base):
     decided_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("admin_users.id"))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decision_note: Mapped[str | None] = mapped_column(String(500))
+
+
+class PluginHealthCheck(Base):
+    """The latest on-demand health check of a plugin that calls a partner (plan 3.1, M17)."""
+
+    __tablename__ = "plugin_health_checks"
+
+    plugin_key: Mapped[str] = mapped_column(ForeignKey("plugin_settings.key"), primary_key=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    detail: Mapped[str] = mapped_column(String(300), nullable=False)
+    checked_by: Mapped[str] = mapped_column(String(64), nullable=False)  # admin ID

@@ -17,13 +17,23 @@ from test_onboarding import PIN, Phone, set_control, sign_up
 from paymentsapp.api.v1 import webhooks
 from paymentsapp.core.config import get_settings
 from paymentsapp.db.session import get_session
-from paymentsapp.integrations.bank_gateway import BankError, Consent, ConsentPurpose, ConsentStatus, VpaVerification
+from paymentsapp.integrations.bank_gateway import (
+    BankError,
+    BankEvent,
+    BankUnavailable,
+    Consent,
+    ConsentPurpose,
+    ConsentStatus,
+    VpaVerification,
+)
 from paymentsapp.integrations.devmessages import provider as dev_provider
 from paymentsapp.integrations.devmessages.models import DevMessage
 from paymentsapp.integrations.mockbank.client import MockBankClient
 from paymentsapp.integrations.mockbank.signing import compute_signature
 from paymentsapp.main import create_app
 from paymentsapp.modules.audit.service import verify_chain
+from paymentsapp.modules.bankevents import service as bank_events
+from paymentsapp.modules.bankevents.models import BankEventCursor
 from paymentsapp.modules.plugins.service import seed_plugins
 from paymentsapp.modules.upi import service as upi_service
 from paymentsapp.modules.upi.models import UpiLink
@@ -449,3 +459,74 @@ async def test_a_consent_the_app_did_not_request_never_creates_a_link(
     raw, headers = signed(consent_event("cns_from_app_access"))
     assert (await client.post("/v1/webhooks/mockbank", content=raw, headers=headers)).status_code == 200
     assert await session.scalar(select(UpiLink.id)) is None
+
+
+# ---- Polling the bank's event feed -----------------------------------------------------------------------------
+
+
+class Feed:
+    """The bank's /events feed: events oldest first, read after a cursor."""
+
+    def __init__(self) -> None:
+        self.events: list[BankEvent] = []
+        self.down = False
+
+    async def poll_events(self, after: str | None = None, limit: int = 100) -> list[BankEvent]:
+        if self.down:
+            raise BankUnavailable("bank asleep")
+        ids = [e.event_id for e in self.events]
+        start = ids.index(after) + 1 if after in ids else 0
+        return self.events[start : start + limit]
+
+    def add(self, event: dict[str, Any]) -> None:
+        created = datetime.fromisoformat(event["created_at"])
+        self.events.append(BankEvent(event["event_id"], event["type"], created, event["data"]))
+
+
+@pytest.fixture
+def feed(monkeypatch: pytest.MonkeyPatch) -> Feed:
+    fake = Feed()
+
+    async def source(_: AsyncSession) -> Feed:
+        return fake
+
+    monkeypatch.setattr(bank_events, "get_bank_event_source", source)
+    return fake
+
+
+async def test_poller_catches_up_on_missed_events(
+    client: httpx.AsyncClient, session: AsyncSession, bank: InMemoryBank, feed: Feed
+) -> None:
+    phone = await customer_with_kyc(client, session)
+    assert (await link(client, phone, MINE)).status_code == 201
+    consent_id = bank.set_status(MINE, ConsentStatus.ACTIVE)
+    missed = consent_event(consent_id)
+    feed.add(missed)
+    feed.add({**consent_event("cns_other"), "type": "transaction.posted"})
+
+    first = await bank_events.poll_once(session)
+    assert first.ran and first.error is None
+    assert first.counts == {"processed": 1, "ignored": 1, "duplicate": 0}
+    stored = await session.scalar(select(UpiLink).where(UpiLink.consent_id == consent_id))
+    assert stored is not None and stored.status == "active"
+
+    # Nothing new: the cursor has moved past both events.
+    again = await bank_events.poll_once(session)
+    assert again.counts == {"processed": 0, "ignored": 0, "duplicate": 0}
+
+    # The same event arriving by webhook afterwards is acknowledged, not handled twice.
+    raw, headers = signed(missed)
+    assert (await client.post("/v1/webhooks/mockbank", content=raw, headers=headers)).json()["status"] == "duplicate"
+
+
+async def test_poller_records_a_failed_round(session: AsyncSession, bank: InMemoryBank, feed: Feed) -> None:
+    feed.down = True
+    result = await bank_events.poll_once(session)
+    assert result.ran and result.error is not None and "BANK_UNAVAILABLE" in result.error
+    cursor = await session.get(BankEventCursor, "mockbank")
+    assert cursor is not None and cursor.last_error and cursor.last_success_at is None
+
+    feed.down = False
+    assert (await bank_events.poll_once(session)).error is None
+    await session.refresh(cursor)
+    assert cursor.last_error is None and cursor.last_success_at is not None

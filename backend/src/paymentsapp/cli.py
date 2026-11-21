@@ -3,6 +3,7 @@
     uv run python -m paymentsapp.cli generate-encryption-key
     uv run python -m paymentsapp.cli create-admin --login-id platform_admin --name "Your Name" --roles platform_admin
     uv run python -m paymentsapp.cli list-admins
+    uv run python -m paymentsapp.cli reset-admin-password --login-id platform_admin@paymentsapp.com
 
 create-admin asks for the password (it is never passed on the command line, where it would land in shell history)
 and prints the TOTP secret once, to add to an authenticator app.
@@ -20,7 +21,7 @@ from paymentsapp.core.crypto import generate_key
 from paymentsapp.core.security import totp_uri
 from paymentsapp.db.session import get_engine
 from paymentsapp.modules.admin.models import AdminUser
-from paymentsapp.modules.admin.service import AdminRole, create_admin
+from paymentsapp.modules.admin.service import AdminRole, create_admin, reset_password
 from paymentsapp.modules.plugins.service import seed_plugins
 
 
@@ -43,6 +44,24 @@ async def _create_admin(login_id: str, name: str, roles: set[AdminRole]) -> int:
     print("Add this to an authenticator app now. It is shown only once:")
     print(f"  secret: {created.totp_secret}")
     print(f"  or scan/open: {totp_uri(created.totp_secret, created.user.login_id)}")
+    return 0
+
+
+async def _reset_password(login_id: str) -> int:
+    password = getpass.getpass("New password: ")
+    if password != getpass.getpass("Repeat new password: "):
+        print("passwords do not match", file=sys.stderr)
+        return 1
+    engine = get_engine()
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        try:
+            user = await reset_password(session, login_id, password)
+        except ValueError as exc:
+            print(f"not changed: {exc}", file=sys.stderr)
+            return 1
+        await session.commit()
+    await engine.dispose()
+    print(f"Password changed for {user.login_id}.")
     return 0
 
 
@@ -80,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     commands.add_parser("list-admins", help="list admin accounts")
+    reset = commands.add_parser("reset-admin-password", help="set a new password for an admin and clear a lockout")
+    reset.add_argument("--login-id", required=True)
     commands.add_parser("seed-plugins", help="create plugin settings, importing mock bank values from .env once")
 
     args = parser.parse_args(argv)
@@ -97,6 +118,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_create_admin(args.login_id, args.name, roles))
     if args.command == "seed-plugins":
         return asyncio.run(_seed_plugins())
+    if args.command == "reset-admin-password":
+        return asyncio.run(_reset_password(args.login_id))
     return asyncio.run(_list_admins())
 
 

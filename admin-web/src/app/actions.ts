@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 
 import { ApiError, backend, signInRequest } from "@/lib/api";
 import { SESSION_COOKIE } from "@/lib/session-cookie";
-import type { ChangeRequest } from "@/lib/types";
+import type { ChangeRequest, HealthCheck, ReconciliationRun } from "@/lib/types";
 
 // Every action passes the admin's own session to the backend, which checks the role again. Nothing here trusts
 // that the form was shown only to someone allowed to submit it.
@@ -145,4 +145,33 @@ export async function cancelRequest(requestId: string, _: FormState): Promise<Fo
   revalidatePath("/plugins");
   revalidatePath("/controls");
   return { message: "Withdrawn." };
+}
+
+export async function runReconciliation(_: FormState, form: FormData): Promise<FormState> {
+  const date = text(form, "business_date");
+  try {
+    const run = await backend<ReconciliationRun>("/admin/v1/reconciliation/run", {
+      method: "POST",
+      body: JSON.stringify({ business_date: date || null }),
+    });
+    revalidatePath("/reconciliation");
+    return run.clean
+      ? { message: `Clean: ${run.matched} movements matched.` }
+      : { error: `${run.issues.length} issue(s) found. See the latest run below.` };
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+export async function checkPluginHealth(pluginKey: string, _: FormState): Promise<FormState> {
+  try {
+    const result = await backend<HealthCheck>(`/admin/v1/plugins/${encodeURIComponent(pluginKey)}/health-check`, {
+      method: "POST",
+    });
+    revalidatePath(`/plugins/${pluginKey}`);
+    revalidatePath("/plugins");
+    return result.ok ? { message: result.detail } : { error: result.detail };
+  } catch (error) {
+    return failure(error);
+  }
 }

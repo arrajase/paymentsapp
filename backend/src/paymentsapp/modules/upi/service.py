@@ -91,9 +91,9 @@ def _bank_failed(exc: BankError) -> AppError:
     return AppError("BANK_ERROR", "the bank couldn't process this; try again later", status_code=502)
 
 
-async def _record_check(session: AsyncSession, context: CustomerContext, kind: str) -> None:
-    """Count one verify or lookup against the customer's hourly limit. Committed first, so it counts even if the
-    bank call then fails."""
+async def record_check(session: AsyncSession, context: CustomerContext, kind: str) -> None:
+    """Count one check (a bank verify or lookup, or a wallet recipient lookup) against the customer's hourly limit.
+    Committed first, so it counts even if the bank call then fails."""
     limit = int(await get_value(session, "vpa_verifications_per_hour"))
     since = _now() - timedelta(hours=1)
     oldest, used = (
@@ -118,7 +118,7 @@ async def _record_check(session: AsyncSession, context: CustomerContext, kind: s
 async def _verify(
     session: AsyncSession, context: CustomerContext, bank: PaymentProvider, upi_id: str
 ) -> VpaVerification:
-    await _record_check(session, context, "verify")
+    await record_check(session, context, "verify")
     try:
         return await bank.verify_vpa(upi_id)
     except BankError as exc:
@@ -131,7 +131,7 @@ async def _lookup_mobile(
     mobile = await verified_mobile(session, context.customer.id)
     if mobile is None:
         raise AppError("MOBILE_REQUIRED", "verify a mobile number first", status_code=409)
-    await _record_check(session, context, "lookup")
+    await record_check(session, context, "lookup")
     try:
         return await bank.lookup_mobile(mobile)
     except BankError as exc:
@@ -162,7 +162,7 @@ class Candidate:
     upi_id: str
     holder_name_masked: str
     name_score: float
-    found_by_mobile: bool
+    found_by_mobile: bool | None  # None: not checked, because sim_binding is off
     problem: tuple[str, str] | None  # (code, message) if it can't be linked
 
     @property
@@ -170,7 +170,7 @@ class Candidate:
         return self.problem is None
 
 
-def _assess(found: VpaVerification, kyc_name: str, found_by_mobile: bool, sim_binding: str) -> Candidate:
+def _assess(found: VpaVerification, kyc_name: str, found_by_mobile: bool | None, sim_binding: str) -> Candidate:
     problem: tuple[str, str] | None = None
     if not found.active:
         problem = ("UPI_INACTIVE", "this UPI ID isn't active at the bank")
@@ -194,7 +194,7 @@ async def _check_upi_id(
 ) -> Candidate:
     sim_binding = str(await get_value(session, "sim_binding"))
     found = await _verify(session, context, bank, upi_id)
-    on_mobile = False
+    on_mobile: bool | None = None
     if sim_binding != "off":
         by_mobile = await _lookup_mobile(session, context, bank)
         on_mobile = by_mobile is not None and by_mobile.upi_id.lower() == upi_id
@@ -261,7 +261,7 @@ async def create_link(
         await session.commit()
         raise AppError(code, message, status_code=422)
     sim_binding = await get_value(session, "sim_binding")
-    if sim_binding == "monitor" and not candidate.found_by_mobile:
+    if sim_binding == "monitor" and candidate.found_by_mobile is False:
         log.warning(
             "UPI ID not linked to the customer's mobile (sim_binding monitor)", extra={"customer": str(customer_id)}
         )
@@ -500,3 +500,10 @@ async def remove_link(
     link = await _owned_link(session, context, link_id)
     await _end(session, link, "removed", "customer", context.actor)
     await session.commit()
+
+
+async def check_payee(session: AsyncSession, context: CustomerContext, raw_upi_id: str) -> VpaVerification:
+    """A UPI ID the customer wants to pay, checked at the bank. Counts towards the UPI check limit, like linking."""
+    upi_id = normalise_upi_id(raw_upi_id)
+    bank = await get_payment_provider(session)
+    return await _verify(session, context, bank, upi_id)

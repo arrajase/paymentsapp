@@ -88,3 +88,28 @@ class AuditEntryOut(BaseModel):
 class SystemOut(BaseModel):
     environment: str
     webhook_url: str  # what to register at the mock bank with its set-webhook command
+
+
+class HealthCheckOut(BaseModel):
+    checked_at: datetime
+    ok: bool
+    latency_ms: int | None
+    detail: str
+
+
+class EventFeedOut(BaseModel):
+    last_webhook_at: datetime | None
+    last_poll_at: datetime | None
+    last_poll_success_at: datetime | None
+    last_poll_error: str | None
+    received_24h: int
+
+
+class PluginHealthOut(BaseModel):
+    key: str
+    enabled: bool
+    mode: str
+    remote: bool  # calls a partner over the network; the others run inside the backend
+    circuit: str | None  # this backend's circuit breaker: "closed", "open" or "half-open"
+    last_check: HealthCheckOut | None
+    events: EventFeedOut | None

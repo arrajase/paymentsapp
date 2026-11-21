@@ -17,7 +17,7 @@ class CandidateOut(BaseModel):
     upi_id: str
     holder_name_masked: str  # e.g. "T••• U•••"; the full name is never sent
     name_matches: bool
-    found_by_mobile: bool  # the bank links this UPI ID to the customer's verified mobile number
+    found_by_mobile: bool | None  # the bank links it to the customer's verified mobile; None: not checked
     can_link: bool
     problem_code: str | None
     problem: str | None

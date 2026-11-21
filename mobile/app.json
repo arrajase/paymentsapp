@@ -32,6 +32,9 @@
     "scheme": "paymentsapp",
     "experiments": {
       "typedRoutes": true
+    },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
     }
   }
 }

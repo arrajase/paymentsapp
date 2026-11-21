@@ -202,3 +202,54 @@ async def test_audit_and_system_endpoints(client: httpx.AsyncClient, seeded: Non
     system = (await client.get("/admin/v1/system", headers=maker)).json()
     assert system["environment"] == "development"
     assert system["webhook_url"].endswith("/v1/webhooks/mockbank")
+
+
+# ---- Building the bank adapter, and plugin health ----------------------------------------------------------------
+
+
+async def test_bank_adapter_comes_from_the_registry(session: AsyncSession, seeded: None) -> None:
+    from paymentsapp.integrations import registry
+
+    await registry.close_clients()
+    client = await registry.get_bank_client(session)
+    assert str(client._http.base_url).rstrip("/") == "https://bank.example.com"
+    assert await registry.get_bank_client(session) is client  # reused while the plugin version is unchanged
+
+    await session.execute(update(PluginSetting).where(PluginSetting.key == "mockbank").values(enabled=False))
+    await session.commit()
+    with pytest.raises(registry.ProviderUnavailable):
+        await registry.get_payment_provider(session)
+    await registry.close_clients()
+
+
+async def test_plugin_health(
+    client: httpx.AsyncClient, session: AsyncSession, seeded: None, maker: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from paymentsapp.modules.plugins import health
+
+    class HealthyBank:
+        async def warm_up(self, max_wait_seconds: float = 90.0) -> None:
+            return None
+
+        async def poll_events(self, after: str | None = None, limit: int = 100) -> list[object]:
+            return []
+
+    async def bank(_: AsyncSession) -> HealthyBank:
+        return HealthyBank()
+
+    monkeypatch.setattr(health, "get_bank_client", bank)
+
+    before = {p["key"]: p for p in (await client.get("/admin/v1/plugins/health", headers=maker)).json()}
+    assert before["mockbank"]["remote"] and before["mockbank"]["last_check"] is None
+    assert before["mockbank"]["events"]["received_24h"] == 0
+    assert not before["mock_kyc"]["remote"] and before["mock_kyc"]["events"] is None
+
+    checked = await client.post("/admin/v1/plugins/mockbank/health-check", headers=maker)
+    assert checked.status_code == 200, checked.text
+    assert checked.json()["ok"] is True and checked.json()["detail"] == "reachable, and the API key works"
+    after = {p["key"]: p for p in (await client.get("/admin/v1/plugins/health", headers=maker)).json()}
+    assert after["mockbank"]["last_check"]["ok"] is True
+
+    in_process = await client.post("/admin/v1/plugins/mock_kyc/health-check", headers=maker)
+    assert in_process.status_code == 409
+    assert (await client.get("/admin/v1/plugins/health")).status_code == 401

@@ -4,23 +4,26 @@ import { useCallback, useState } from "react";
 import { Switch, Text, View } from "react-native";
 
 import { api } from "@/core/api/client";
-import type { Me } from "@/core/api/types";
+import type { Me, Wallet } from "@/core/api/types";
 import { useSession } from "@/core/session";
 import { storage } from "@/core/storage";
 import { Body, Button, Card, colors, Loading, Message, Row, Screen, Title } from "@/ui/components";
 import { errorMessage } from "@/ui/errors";
+import { formatRupees } from "@/ui/money";
 
 const TIER_LABELS = { T0: "Registered (no wallet yet)", T1: "Minimum KYC", T2: "Full KYC" } as const;
 
 export default function Home() {
   const { signOut } = useSession();
   const [me, setMe] = useState<Me | null>(null);
+  const [wallet, setWallet] = useState<Wallet | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fingerprint, setFingerprint] = useState({ available: false, on: false });
 
   const load = useCallback(() => {
     setError(null);
     api<Me>("/v1/me", { auth: true }).then(setMe, (e) => setError(errorMessage(e)));
+    api<Wallet>("/v1/wallet", { auth: true }).then(setWallet, () => setWallet(null));
     Promise.all([LocalAuthentication.hasHardwareAsync(), LocalAuthentication.isEnrolledAsync(), storage.getBiometricUnlock()]).then(
       ([hardware, enrolled, on]) => setFingerprint({ available: hardware && enrolled, on }),
     );
@@ -57,6 +60,14 @@ export default function Home() {
             )}
           </Card>
 
+          {wallet?.enabled && (
+            <Card>
+              <Body muted>Wallet balance</Body>
+              <Text style={{ fontSize: 28, fontWeight: "700", color: colors.text }}>{formatRupees(wallet.balance)}</Text>
+              <Button title="Wallet" onPress={() => router.push("/wallet")} />
+            </Card>
+          )}
+
           {me.kyc.tier !== "T2" && (
             <Button title={me.kyc.tier === "T0" ? "Complete minimum KYC" : "Upgrade to full KYC"} onPress={() => router.push("/kyc")} />
           )}
@@ -81,7 +92,6 @@ export default function Home() {
         </>
       )}
       <Button title="Sign out" variant="secondary" onPress={signOut} />
-      <Body muted>The wallet arrives in a later phase. This build covers sign-up, sign-in, KYC, consents and UPI linking.</Body>
     </Screen>
   );
 }

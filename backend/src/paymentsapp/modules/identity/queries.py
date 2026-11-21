@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from paymentsapp.core.crypto import get_cipher
+from paymentsapp.core.crypto import blind_index, get_cipher
 from paymentsapp.modules.identity.models import CustomerIdentifier
 
 
@@ -39,3 +39,21 @@ async def contact_points(session: AsyncSession, customer_id: uuid.UUID) -> list[
     ).all()
     cipher = get_cipher()
     return [(r.kind, cipher.decrypt(r.value_encrypted, identifier_context(r.id))) for r in rows]
+
+
+async def customer_by_mobile(session: AsyncSession, mobile: str) -> tuple[uuid.UUID, str] | None:
+    """The customer whose verified mobile this is (+91 and 10 digits), and its masked form; or None."""
+    row = await session.scalar(
+        select(CustomerIdentifier).where(
+            CustomerIdentifier.kind == "mobile", CustomerIdentifier.blind_index == blind_index("mobile", mobile)
+        )
+    )
+    return (row.customer_id, row.masked) if row else None
+
+
+async def masked_mobile(session: AsyncSession, customer_id: uuid.UUID) -> str | None:
+    return await session.scalar(
+        select(CustomerIdentifier.masked).where(
+            CustomerIdentifier.customer_id == customer_id, CustomerIdentifier.kind == "mobile"
+        )
+    )

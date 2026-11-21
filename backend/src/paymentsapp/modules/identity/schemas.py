@@ -88,7 +88,7 @@ class DeviceSignIn(_In):
 
 
 class StepUpChallengeRequest(_In):
-    action: Literal["upi_link", "upi_unlink", "upi_set_default"]
+    action: Literal["upi_link", "upi_unlink", "upi_set_default", "payment"]
 
 
 class StepUpRequest(_In):

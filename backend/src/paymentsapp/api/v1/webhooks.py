@@ -1,7 +1,7 @@
 """Bank webhooks (plan 9.4). Public, so nothing is trusted until the signature on the raw bytes checks out.
 
-Each event is claimed once (duplicates are acknowledged and skipped) and handled in the same transaction. If
-handling fails, nothing is kept and the answer is 503, so the bank delivers the event again later.
+Events are handled by modules/bankevents, the same way the poller handles them. A duplicate is acknowledged and
+skipped. If handling fails, nothing is kept and the answer is 503, so the bank delivers the event again later.
 """
 
 import logging
@@ -11,9 +11,8 @@ from fastapi import APIRouter, Request
 from paymentsapp.api.deps import DbSession
 from paymentsapp.core.errors import AppError
 from paymentsapp.integrations.bank_gateway import BankError, WebhookVerificationError
-from paymentsapp.integrations.bankevents import inbox
 from paymentsapp.integrations.registry import MOCKBANK, get_bank_event_source
-from paymentsapp.modules.upi import service as upi
+from paymentsapp.modules.bankevents import service as bank_events
 
 log = logging.getLogger(__name__)
 
@@ -45,17 +44,10 @@ async def mockbank(request: Request, session: DbSession) -> dict[str, str]:
         log.error("mock bank webhook received, but the plugin has no webhook secret")
         raise AppError("SERVICE_UNAVAILABLE", "webhooks are not configured", status_code=503) from None
 
-    handled = event.type == "consent.updated"
-    if not await inbox.claim(session, MOCKBANK, event, "processed" if handled else "ignored"):
-        await session.commit()
-        return {"status": "duplicate"}
     try:
-        consent_id = event.data.get("consent_id")
-        if handled and isinstance(consent_id, str):
-            await upi.on_consent_updated(session, consent_id)
-        # transaction.posted and collect_request.updated are handled once the wallet exists (M4, M5).
+        outcome = await bank_events.handle(session, MOCKBANK, event, "webhook")
     except BankError:
         await session.rollback()
         raise AppError("SERVICE_UNAVAILABLE", "try again later", status_code=503) from None
     await session.commit()
-    return {"status": "ok"}
+    return {"status": "duplicate" if outcome == "duplicate" else "ok"}

@@ -22,7 +22,7 @@ from paymentsapp.modules.identity.models import DeviceChallenge, StepUpToken
 from paymentsapp.modules.identity.service import Challenge, check_pin
 from paymentsapp.modules.identity.sessions import CustomerContext
 
-StepUpAction = Literal["upi_link", "upi_unlink", "upi_set_default"]
+StepUpAction = Literal["upi_link", "upi_unlink", "upi_set_default", "payment"]
 STEP_UP_PREFIX = "stp"
 
 

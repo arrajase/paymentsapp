@@ -1,0 +1,62 @@
+# Render blueprint: the backend (API, with the worker running inside it) and the admin website, on the free tier.
+# Create it from the Render dashboard: New > Blueprint > this repository. Secrets marked sync: false are asked for
+# then, and are never stored in this file.
+#
+# This is a demo deployment, not production: ENVIRONMENT=development keeps the Dev inbox (sign-in codes are read on
+# the admin website, as no SMS provider exists yet) and password-only admin sign-in. Use mock money and test
+# identities only.
+
+services:
+  - type: web
+    name: paymentsapp-api
+    runtime: python
+    plan: free
+    region: singapore # next to the Neon database (ap-southeast-1)
+    rootDir: backend
+    buildCommand: pip install uv && uv sync --locked --no-dev
+    # Migrations run on every start (Render's pre-deploy step is not on the free tier). --proxy-headers takes the
+    # customer's address from Render's proxy, so per-IP limits and the audit log see the real client.
+    startCommand: >-
+      uv run --no-sync alembic upgrade head &&
+      uv run --no-sync uvicorn paymentsapp.main:app --host 0.0.0.0 --port $PORT --proxy-headers
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: ENVIRONMENT
+        value: development
+      - key: ADMIN_TOTP_REQUIRED
+        value: "false"
+      # Render's free tier has no background workers, so the worker loop runs inside the API.
+      - key: RUN_WORKER_IN_API
+        value: "true"
+      # The API docs would map every endpoint for anyone on the internet.
+      - key: API_DOCS_ENABLED
+        value: "false"
+      # Trust the forwarding header from Render's proxy (the only way in).
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+      - key: LOG_LEVEL
+        value: INFO
+      # Secrets: paste them when Render asks. The two keys must be the ones the database's data was written with.
+      - key: DATABASE_URL
+        sync: false
+      - key: FIELD_ENCRYPTION_KEYS
+        sync: false
+      - key: BLIND_INDEX_KEY
+        sync: false
+
+  - type: web
+    name: paymentsapp-admin
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: admin-web
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # The API's public address, for example https://paymentsapp-api.onrender.com. Known after the first deploy.
+      - key: ADMIN_API_BASE_URL
+        sync: false

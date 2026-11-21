@@ -121,6 +121,24 @@ async def create_admin(
     return NewAdmin(user=user, totp_secret=secret)
 
 
+async def reset_password(session: AsyncSession, login_id: str, password: str, actor: Actor = SYSTEM) -> AdminUser:
+    """Set a new password and clear any lockout. The authenticator secret is kept."""
+    problem = password_problem(password)
+    if problem:
+        raise ValueError(f"password {problem}")
+    user = await session.scalar(
+        select(AdminUser).where(AdminUser.login_id == normalise_login_id(login_id)).with_for_update()
+    )
+    if user is None:
+        raise ValueError("no admin with that login ID")
+    user.password_hash = hash_password(password)
+    user.failed_logins = 0
+    user.locked_until = None
+    await session.flush()
+    await record(session, actor, "admin.password_reset", "admin_user", str(user.id))
+    return user
+
+
 @dataclass(frozen=True)
 class SignIn:
     token: str

@@ -1,0 +1,43 @@
+name: mock bank contract
+
+# Runs the contract tests against the real hosted mock bank (plan 11), so a change to the bank's API is caught
+# before it breaks the app. Read-only: no money moves. Needs these repository secrets (Settings > Secrets and
+# variables > Actions): MOCKBANK_API_KEY, MOCKBANK_ESCROW_UPI_ID, MOCKBANK_OPERATING_UPI_ID and
+# MOCKBANK_TEST_CUSTOMER_UPI_ID. Use a separate API client for CI, not the one your development backend uses.
+
+on:
+  schedule:
+    - cron: "30 21 * * *" # 03:00 IST every day
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      MOCKBANK_API_KEY: ${{ secrets.MOCKBANK_API_KEY }}
+      MOCKBANK_ESCROW_UPI_ID: ${{ secrets.MOCKBANK_ESCROW_UPI_ID }}
+      MOCKBANK_OPERATING_UPI_ID: ${{ secrets.MOCKBANK_OPERATING_UPI_ID }}
+      MOCKBANK_TEST_CUSTOMER_UPI_ID: ${{ secrets.MOCKBANK_TEST_CUSTOMER_UPI_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        run: pip install uv
+      - name: Install dependencies from the lockfile
+        run: uv sync --locked
+      # Without the secrets the tests skip themselves, which would look like a pass. Fail loudly instead.
+      - name: Check the secrets are set
+        run: |
+          for name in MOCKBANK_API_KEY MOCKBANK_ESCROW_UPI_ID MOCKBANK_OPERATING_UPI_ID MOCKBANK_TEST_CUSTOMER_UPI_ID; do
+            if [ -z "${!name}" ]; then echo "::error::repository secret $name is not set"; exit 1; fi
+          done
+      - name: Contract tests
+        run: uv run pytest -m contract -q

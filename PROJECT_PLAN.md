@@ -351,7 +351,9 @@ Backend modules created by `template.py`: `identity, kyc, upi, wallet, payments,
 - **The first active link becomes the default.** Removing the default promotes the oldest remaining link. Linking and unlinking send a security alert.
 - **Consent state** comes from `consent.updated` webhooks (signature checked, events de-duplicated in `bank_events`, and the consent re-read from the bank rather than trusted from the event body). Pending links are also re-checked whenever the customer lists their links, because the hosted bank can't reach a laptop. A revoked or expired consent ends an active link. A consent the app didn't request never creates a link.
 - **Unlinking** stops the app using the UPI ID at once. The bank has no API for the app to withdraw its consent, so the customer does that on the bank's website.
-- **Deferred:** the `/events` poller (needs the task worker), `STATEMENT` consent for insights (M10), and the plugin health view on the admin website.
+- **Bank events** are handled the same way whether they arrive by webhook or from the worker's poller (`python -m paymentsapp.worker`), which reads `GET /events` every 60 seconds (`BANK_EVENT_POLL_SECONDS`) from a stored cursor. An event is claimed by its ID before it is handled, so it is handled once either way, and the cursor moves past an event only in the same transaction that handled it. A database lock lets only one worker poll at a time.
+- **Plugin health** on the admin website: the last on-demand check (reachable, response time, API key accepted), this backend's circuit breaker, the last webhook, and the poller's last run and error.
+- **Deferred:** `STATEMENT` consent for insights (M10). Refusing to disable a plugin that holds a GL balance needs the ledger, so it arrives with M4 in Phase 3.
 
 **Controls**
 - Rate-limit VPA validation so it cannot be used to harvest other people's names.
@@ -387,6 +389,12 @@ Backend modules created by `template.py`: `identity, kyc, upi, wallet, payments,
 
 **API:** `GET /v1/wallet`, `GET /v1/wallet/transactions`, `POST /v1/wallet/add-money`, `POST /v1/wallet/withdraw`, `POST /v1/wallet/close`
 
+**As built in Phase 3 (part 1: ledger and adding money)**
+- Accounts (`ledger_accounts`): `wallet:<customer>` (liability), `escrow:<plugin>` (asset), and later `in_transit:<plugin>` and `suspense`. Each keeps its balance on its normal side.
+- `ledger.post()` is the only writer. It checks debits equal credits, locks the accounts in id order, and refuses an entry that would take a wallet below zero, before changing anything.
+- The database backs this up: journal entries and lines are append-only (triggers, as for the audit log), a deferred constraint trigger checks every entry balances at commit, and a check constraint keeps wallets at or above zero. One entry of each kind per payment, so settling twice can't post twice.
+- Limits come from `config/compliance_limits.yaml`, read and checked at load: T1 (small PPI) holds up to ₹10,000 and loads up to ₹10,000 a month and ₹1,20,000 a financial year; T2 holds up to ₹2,00,000. Requests still waiting on the bank count against the caps. A new device is capped at ₹5,000 a payment during its cooling period. The figures are RBI's ceilings as we read them; compliance must confirm them before launch.
+
 ### M5: Payments orchestration
 **Purpose:** the only component that moves money. It runs every payment through checks, the ledger and the bank as a persisted state machine.
 
@@ -406,6 +414,22 @@ Every transition is stored as an event row recording who, when and why.
 - **Side effects:** notifications, monitoring and insights go through a transactional outbox, so none are lost and none are sent for a payment that was rolled back.
 
 **API:** `POST /v1/payments`, `GET /v1/payments/{id}`, `POST /v1/webhooks/mockbank`
+
+**As built in Phase 3 (part 1: adding money)**
+- `POST /v1/wallet/add-money` needs an `Idempotency-Key` header. The payment is saved (`CHECKED`) and committed before the bank is called, then a collect request goes from the customer's default linked UPI ID to escrow, with the payment's own bank idempotency key and `client_reference` `pa-<payment id>` (`AWAITING_AUTH`).
+- The customer approves with their UPI PIN under Pending Requests on the mock bank website. The wallet is credited (debit escrow, credit wallet) only from the bank's own record of the collect request, in the same transaction that marks the payment `SUCCESS`; a record that doesn't match the payment's amount, payee or reference is never credited.
+- A lost answer makes the payment `UNKNOWN`. Settling repeats the identical request with the same key, and the bank answers from its stored result. A payment left in `CHECKED` (the process died before the bank call) is treated the same way after two minutes.
+- Payments settle when the app checks them (`GET /v1/payments/{id}`), on `collect_request.updated` events (webhook or poller), and in the worker's sweep, with backoff doubling up to 10 minutes. Every status change is a row in `payment_events`.
+
+**As built in Phase 3 (part 2: payments out, transfers, reconciliation)**
+- `POST /v1/payments` with `kind` `merchant` (any UPI ID, T1 and T2), `withdrawal` (to the customer's default linked UPI ID, T2) or `p2p` (another customer's wallet by mobile number, T2 on both sides). Each needs an `Idempotency-Key` and a step-up token for the `payment` action; a retry with the same key gets the original payment back before the step-up check, because the first attempt used the token up.
+- **Merchant and withdrawal:** the amount is held (debit wallet, credit `in_transit:<plugin>`) in the transaction that saves the payment, then the escrow account pays at the bank. Success captures the hold (debit in-transit, credit escrow); a known failure releases it to the wallet; a lost answer leaves it held and `UNKNOWN`, and settling repeats the same request with the same key. A balance too low refuses the payment before anything is saved.
+- **Wallet to wallet:** a ledger entry only (debit sender, credit receiver), done at once; the money never leaves escrow. Limited to ₹10,000 a month sent (RBI's ceiling for recipients not registered in advance), and refused if it would take the recipient over their wallet cap.
+- `POST /v1/payments/payee` (a UPI ID's masked name) and `POST /v1/payments/recipient` (a wallet customer by mobile) count towards `vpa_verifications_per_hour`, so they can't be used to harvest names or find out who has a wallet.
+- Every completed payment sends a transaction alert to the customer (and the recipient of a transfer).
+- **Reconciliation** (`modules/wallet/reconciliation.py`) checks that escrow equals wallets plus in-transit inside the ledger, that the escrow ledger balance equals the bank's balance, and that every escrow statement line and every escrow ledger line for the day has its partner by `client_reference`, amount and direction (a day either side, for movements settled around midnight). Runs are stored with their issues. The worker reconciles the previous day once a day; operations, compliance and platform admins can run it from the admin website's **Reconciliation** page, which also shows the ledger totals.
+- **Plugin guard:** a bank plugin that holds customer money in the ledger can't be disabled or given a new escrow UPI ID, checked when the change is proposed and again when it is approved.
+- Not yet: refunds and cashback, wallet closure, beneficiary registration for higher transfer limits, the M7 risk engine beyond the new-device cap, and opening operations cases for reconciliation issues (M8, M14).
 
 ### M6: Bank gateway (mock bank adapter)
 The mock bank is the first plugin for `IssuerProvider` and `PaymentProvider`. Plugins are described in section 3.1, and the mock bank in section 9.

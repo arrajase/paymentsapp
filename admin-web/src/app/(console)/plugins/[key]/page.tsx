@@ -2,16 +2,17 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Badge, ErrorPanel, Notice, PageHeader } from "@/components/ui";
-import { ApiError, getMe, getPlugins, getSystem } from "@/lib/api";
+import { ApiError, getMe, getPluginHealth, getPlugins, getSystem } from "@/lib/api";
 import { formatDateTime, hasRole } from "@/lib/format";
 
+import { HealthPanel } from "./health-panel";
 import { ProposeForm } from "./propose-form";
 
 export default async function PluginPage({ params }: PageProps<"/plugins/[key]">) {
   const { key } = await params;
-  let plugins, me, system;
+  let plugins, me, system, health;
   try {
-    [plugins, me, system] = await Promise.all([getPlugins(), getMe(), getSystem()]);
+    [plugins, me, system, health] = await Promise.all([getPlugins(), getMe(), getSystem(), getPluginHealth()]);
   } catch (error) {
     if (error instanceof ApiError) return <ErrorPanel message={error.message} />;
     throw error;
@@ -19,6 +20,7 @@ export default async function PluginPage({ params }: PageProps<"/plugins/[key]">
   const plugin = plugins.find((p) => p.key === key);
   if (!plugin) notFound();
   const canPropose = hasRole(me, "platform_admin");
+  const pluginHealth = health.find((h) => h.key === plugin.key);
 
   return (
     <>
@@ -94,6 +96,8 @@ export default async function PluginPage({ params }: PageProps<"/plugins/[key]">
             <ProposeForm plugin={plugin} />
           )}
         </section>
+
+        {pluginHealth && <HealthPanel health={pluginHealth} />}
       </div>
     </>
   );

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from paymentsapp.core.config import Environment, get_settings
 from paymentsapp.core.errors import AppError
-from paymentsapp.integrations.bank_gateway import BankEventSource, PaymentProvider
+from paymentsapp.integrations.bank_gateway import BankEventSource, IssuerProvider, PaymentProvider
 from paymentsapp.integrations.messaging.base import MessagingProvider, MessagingUnavailable
 from paymentsapp.integrations.mockbank.client import MockBankClient
 from paymentsapp.modules.plugins.catalogue import get_catalogue
@@ -69,8 +69,32 @@ async def _bank_client(session: AsyncSession, interface: str) -> MockBankClient:
     return client
 
 
+async def bank_plugin(session: AsyncSession) -> PluginSetting:
+    """The enabled bank plugin's settings: its key, version and config (for example escrow_upi_id)."""
+    setting = await session.get(PluginSetting, MOCKBANK)
+    allowed = get_catalogue().allowed.get("payment", {}).get(MOCKBANK, ())
+    if setting is None or not setting.enabled or setting.mode not in allowed:
+        raise ProviderUnavailable("payment")
+    return setting
+
+
+async def get_bank_client(session: AsyncSession) -> MockBankClient:
+    """The mock bank adapter itself, for operations outside the provider interfaces (health checks)."""
+    return await _bank_client(session, "payment")
+
+
+def bank_circuit_state() -> str | None:
+    """This process's circuit breaker for the bank: "closed", "open" or "half-open"; None before the first call."""
+    return _bank[1].breaker.state if _bank is not None else None
+
+
 async def get_payment_provider(session: AsyncSession) -> PaymentProvider:
     return await _bank_client(session, "payment")
+
+
+async def get_issuer(session: AsyncSession) -> IssuerProvider:
+    """The bank holding escrow: balances and statements of the app's own accounts, for reconciliation."""
+    return await _bank_client(session, "issuer")
 
 
 async def get_bank_event_source(session: AsyncSession) -> BankEventSource:

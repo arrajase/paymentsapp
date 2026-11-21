@@ -43,7 +43,8 @@ class UpiLink(CreatedAtMixin, Base):
     upi_id_masked: Mapped[str] = mapped_column(String(80), nullable=False)
     holder_name_masked: Mapped[str] = mapped_column(String(120), nullable=False)
     name_match_score: Mapped[float] = mapped_column(Float, nullable=False)
-    found_by_mobile: Mapped[bool] = mapped_column(Boolean, nullable=False)  # the bank links it to the verified mobile
+    # Whether the bank links this UPI ID to the verified mobile; None when not checked (sim_binding off).
+    found_by_mobile: Mapped[bool | None] = mapped_column(Boolean)
     consent_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     consent_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")

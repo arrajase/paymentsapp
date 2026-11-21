@@ -1,5 +1,6 @@
 """Settings from the environment (secrets, URLs) and versioned YAML config from config/ (rules, limits)."""
 
+import os
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
@@ -32,8 +33,12 @@ class Settings(BaseSettings):
     # Tests only: a disposable database whose name ends in _test. The test suite wipes it on every run.
     test_database_url: SecretStr | None = None
 
-    # Where the bank and the admin website reach this backend; used to show the webhook URL to register.
-    public_base_url: str = "http://localhost:8001"
+    # Where the bank and the admin website reach this backend; used to show the webhook URL to register. On Render,
+    # RENDER_EXTERNAL_URL (set by Render) supplies it.
+    public_base_url: str = Field(default_factory=lambda: os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:8001"))
+
+    # The interactive API docs (/docs). None: on everywhere except production. Set false on a public deployment.
+    api_docs_enabled: bool | None = None
 
     # Field encryption keys "k1=<base64>[,k0=<old>]"; the first encrypts, all decrypt (plan 7.3).
     field_encryption_keys: SecretStr | None = None
@@ -67,6 +72,12 @@ class Settings(BaseSettings):
     admin_lockout_minutes: int = 15
     # CIDRs allowed to reach /admin. Empty allows any address outside production and none in production.
     admin_ip_allowlist: list[str] = Field(default_factory=list)
+
+    # Worker (python -m paymentsapp.worker): how often it polls the bank's event feed for missed webhooks.
+    bank_event_poll_seconds: int = 60
+    # Run the worker's loop inside the API process instead of as its own process. For hosting without background
+    # workers, such as Render's free tier. Only one API process should have it on.
+    run_worker_in_api: bool = False
 
     mockbank_base_url: str = "https://mockbankforpayments.onrender.com"
     mockbank_api_key: SecretStr | None = None

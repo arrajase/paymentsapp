@@ -32,3 +32,14 @@ async def send_security_alert(session: AsyncSession, destinations: list[tuple[st
             await messaging.send_sms(destination, message, "security_alert")
         else:
             await messaging.send_email(destination, f"{APP_NAME} security alert", message, "security_alert")
+
+
+async def send_transaction_alert(session: AsyncSession, destinations: list[tuple[str, str]], text: str) -> None:
+    """A message for every completed payment (RBI requires one for each wallet transaction)."""
+    messaging = await get_messaging(session)
+    message = f"{APP_NAME}: {text} Not you? Contact support immediately."
+    for channel, destination in destinations:
+        if channel == "mobile":
+            await messaging.send_sms(destination, message, "transaction_alert")
+        else:
+            await messaging.send_email(destination, f"{APP_NAME} payment", message, "transaction_alert")

@@ -4,7 +4,18 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { SESSION_COOKIE } from "@/lib/session-cookie";
-import type { Admin, AuditEntry, ChangeRequest, Control, DevInbox, Plugin, RequestStatus, SystemInfo } from "@/lib/types";
+import type {
+  Admin,
+  AuditEntry,
+  ChangeRequest,
+  Control,
+  DevInbox,
+  Plugin,
+  PluginHealth,
+  Reconciliation,
+  RequestStatus,
+  SystemInfo,
+} from "@/lib/types";
 
 const BASE_URL = process.env.ADMIN_API_BASE_URL ?? "http://localhost:8001";
 
@@ -96,6 +107,8 @@ export async function signInRequest(body: { email: string; password: string; tot
 export const getMe = () => backend<Admin>("/admin/v1/me");
 export const getSystem = () => backend<SystemInfo>("/admin/v1/system");
 export const getPlugins = () => backend<Plugin[]>("/admin/v1/plugins");
+export const getPluginHealth = () => backend<PluginHealth[]>("/admin/v1/plugins/health");
+export const getReconciliation = () => backend<Reconciliation>("/admin/v1/reconciliation");
 export const getControls = () => backend<Control[]>("/admin/v1/controls");
 export const getDevInbox = () => backend<DevInbox>("/admin/v1/dev/messages?limit=50");
 export const getAudit = (limit = 100) => backend<AuditEntry[]>(`/admin/v1/audit?limit=${limit}`);
